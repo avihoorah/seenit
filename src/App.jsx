@@ -393,9 +393,8 @@ function DetailSheet({item,onClose,onUpdate,onDelete,onEpisodes,userId,profile})
   const isWatching=(item.lists||[]).includes("Watching");
 
   useEffect(()=>{
-    const el=document.querySelector("[data-scroll-lock]");
-    if(el) el.style.overflow="hidden";
-    return()=>{ if(el) el.style.overflow=""; };
+    document.body.style.overflow="hidden";
+    return()=>{ document.body.style.overflow=""; };
   },[]);
 
   useEffect(()=>{
@@ -467,7 +466,7 @@ function DetailSheet({item,onClose,onUpdate,onDelete,onEpisodes,userId,profile})
     <>
     {showRating&&<RatingModal title={title} onRate={finishWithRating} onSkip={()=>{ setList("Finished"); setShowRating(false); onClose(); }}/>}
     <div style={{position:"fixed",inset:0,zIndex:200}} onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div style={{position:"fixed",inset:0,background:"rgba(28,28,26,0.6)"}} onClick={onClose}/>
+      <div style={{position:"fixed",inset:0,background:"rgba(28,28,26,0.5)"}} onClick={onClose}/>
       <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,maxHeight:"91dvh",background:BG,borderRadius:"20px 20px 0 0",display:"flex",flexDirection:"column",overflow:"hidden",zIndex:201}}>
         {/* Backdrop */}
         <div style={{position:"relative",height:190,flexShrink:0}}>
@@ -912,17 +911,16 @@ function DiscoverPreview({item,library,onClose,onAdd,onOpenDetail}){
   const overview=meta?.overview||item.overview||"";
   const genres=(meta?.genres||[]).slice(0,3).map(g=>g.name).join(" · ");
 
-  // Lock the inner scroll container while sheet is open
+  // Lock background scroll while sheet is open
   useEffect(()=>{
-    const el=document.querySelector("[data-scroll-lock]");
-    if(el) el.style.overflow="hidden";
-    return()=>{ if(el) el.style.overflow=""; };
+    document.body.style.overflow="hidden";
+    return()=>{ document.body.style.overflow=""; };
   },[]);
 
   return(
     <div style={{position:"fixed",inset:0,zIndex:450,pointerEvents:"all"}} onClick={e=>e.target===e.currentTarget&&onClose()}>
       {/* Scrim */}
-      <div style={{position:"fixed",inset:0,background:"rgba(28,28,26,0.6)"}} onClick={onClose}/>
+      <div style={{position:"fixed",inset:0,background:"rgba(28,28,26,0.45)"}} onClick={onClose}/>
       {/* Sheet — always anchored to bottom of viewport */}
       <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,background:BG,borderRadius:"22px 22px 0 0",maxHeight:"80dvh",display:"flex",flexDirection:"column",zIndex:451}}>
         {/* Drag handle */}
@@ -1624,7 +1622,7 @@ export default function SeenIt(){
       </div>
 
       {/* ── SCROLLABLE CONTENT ── */}
-      <div ref={contentRef} data-scroll-lock style={{flex:1,overflowY:"auto",overflowX:"hidden",padding:"16px 0 0"}}>
+      <div ref={contentRef} style={{flex:1,overflowY:"auto",overflowX:"hidden",padding:"16px 0 0"}}>
 
         {/* HOME */}
         {tab==="home"&&(
