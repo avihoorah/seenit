@@ -65,13 +65,33 @@ function Spin({size=20}){
 
 function Stars({value,onSet,size=14}){
   const [hov,setHov]=useState(0);
+  const timers=useRef({});
+  const val=hov||value||0;
+  const handlePressStart=(n)=>{
+    if(!onSet) return;
+    timers.current[n]=setTimeout(()=>{ onSet(n-0.5); timers.current[n]=null; },400);
+  };
+  const handlePressEnd=(n)=>{
+    if(!onSet) return;
+    if(timers.current[n]){ clearTimeout(timers.current[n]); timers.current[n]=null; onSet(n); }
+  };
   return(
-    <div style={{display:"flex",gap:2}}>
-      {[1,2,3,4,5].map(n=>(
-        <span key={n} onClick={()=>onSet&&onSet(n)}
-          onMouseEnter={()=>onSet&&setHov(n)} onMouseLeave={()=>onSet&&setHov(0)}
-          style={{fontSize:size,color:n<=(hov||value||0)?TEXT:TEXT3,cursor:onSet?"pointer":"default",lineHeight:1}}>★</span>
-      ))}
+    <div style={{display:"flex",gap:2,alignItems:"center"}}>
+      {[1,2,3,4,5].map(n=>{
+        const full=val>=n;
+        const half=!full&&val>=n-0.5;
+        return(
+          <span key={n}
+            onMouseEnter={()=>onSet&&setHov(n)} onMouseLeave={()=>onSet&&setHov(0)}
+            onMouseDown={()=>handlePressStart(n)} onMouseUp={()=>handlePressEnd(n)}
+            onTouchStart={()=>handlePressStart(n)} onTouchEnd={()=>handlePressEnd(n)}
+            style={{fontSize:size,cursor:onSet?"pointer":"default",lineHeight:1,position:"relative",display:"inline-block"}}>
+            <span style={{color:TEXT3}}>★</span>
+            {(full||half)&&<span style={{position:"absolute",left:0,top:0,width:full?"100%":"50%",overflow:"hidden",color:TEXT}}>★</span>}
+          </span>
+        );
+      })}
+      {value&&value%1!==0&&<span style={{fontSize:size*0.8,color:TEXT2,marginLeft:2}}>½</span>}
     </div>
   );
 }
@@ -147,9 +167,7 @@ function AuthScreen(){
   return(
     <div style={{background:BG,minHeight:"100dvh",maxWidth:430,margin:"0 auto",display:"flex",flexDirection:"column",justifyContent:"center",padding:"0 28px",fontFamily:"'DM Sans',system-ui,sans-serif"}}>
       <div style={{marginBottom:48}}>
-        <div style={{fontSize:13,fontWeight:800,letterSpacing:2,textTransform:"uppercase",marginBottom:10}}>
-          <span style={{color:TEXT}}>SEEN</span><span style={{color:SAGE}}>IT</span>
-        </div>
+        <div style={{fontSize:13,fontWeight:800,letterSpacing:2,textTransform:"uppercase",marginBottom:10}}><span style={{color:TEXT}}>SEEN</span><span style={{color:SAGE}}>IT</span></div>
         <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:38,color:TEXT,lineHeight:1.15,whiteSpace:"pre-line"}}>
           {mode==="login"?"Welcome\nback.":"Create your\naccount."}
         </div>
@@ -403,13 +421,15 @@ function EpisodeSheet({item,userId,onClose,onProgressSaved}){
 }
 
 // ── Detail Sheet ───────────────────────────────────────────────────────────────
-function DetailSheet({item,onClose,onUpdate,onDelete,onEpisodes,userId}){
+function DetailSheet({item,onClose,onUpdate,onDelete,onEpisodes,userId,profile}){
   const [tab,setTab]=useState("info");
   const [note,setNote]=useState("");
   const [noteRef,setNoteRef]=useState("");
   const [notes,setNotes]=useState([]);
   const [savingNote,setSavingNote]=useState(false);
   const [showRating,setShowRating]=useState(false);
+  const [providers,setProviders]=useState(null);
+  const [watchCount,setWatchCount]=useState(item.watch_count||1);
 
   const title=item._meta?.name||item._meta?.title||"—";
   const year=(item._meta?.first_air_date||item._meta?.release_date||"").slice(0,4);
@@ -420,6 +440,16 @@ function DetailSheet({item,onClose,onUpdate,onDelete,onEpisodes,userId}){
 
   useEffect(()=>{
     sb.from("notes").select("*").eq("user_id",userId).eq("tmdb_id",item.tmdb_id).order("created_at",{ascending:false}).then(({data})=>setNotes(data||[]));
+    // Fetch streaming providers
+    const type=item.media_type==="tv"?"tv":"movie";
+    const savedCountry=profile?.country;
+    const lang=navigator.language||"en-GB";
+    const country=savedCountry||(lang.split("-")[1]||lang.toUpperCase().slice(0,2)||"GB");
+    tmdb(`/${type}/${item.tmdb_id}/watch/providers`).then(d=>{
+      const res=d.results||{};
+      const countryData=res[country]||res["GB"]||res["US"]||Object.values(res)[0]||null;
+      setProviders(countryData);
+    }).catch(()=>{});
   },[item.tmdb_id]);
 
   const saveNote=async()=>{
@@ -435,15 +465,17 @@ function DetailSheet({item,onClose,onUpdate,onDelete,onEpisodes,userId}){
     const ls=item.lists||[];
     const removing=ls.includes(targetList);
     let updated;
+    const extra={};
     if(targetList==="Finished"){
       updated=removing?ls.filter(x=>x!=="Finished"):[...ls.filter(x=>x!=="Watching"&&x!=="Watchlist"),"Finished"];
+      if(!removing) extra.watched_at=new Date().toISOString();
     } else if(targetList==="Watching"){
       updated=removing?ls.filter(x=>x!=="Watching"):[...ls.filter(x=>x!=="Finished"&&x!=="Watchlist"),"Watching"];
     } else {
       updated=removing?ls.filter(x=>x!==targetList):[...ls,targetList];
     }
-    await sb.from("library").update({lists:updated}).eq("id",item.id);
-    onUpdate({...item,lists:updated});
+    await sb.from("library").update({lists:updated,...extra}).eq("id",item.id);
+    onUpdate({...item,lists:updated,...extra});
   };
 
   const setRating=async(v)=>{
@@ -456,8 +488,9 @@ function DetailSheet({item,onClose,onUpdate,onDelete,onEpisodes,userId}){
   const finishWithRating=async(v)=>{
     const ls=item.lists||[];
     const updated=[...ls.filter(x=>x!=="Watchlist"&&x!=="Watching"),"Finished"];
-    await sb.from("library").update({rating:v,lists:updated}).eq("id",item.id);
-    onUpdate({...item,rating:v,lists:updated});
+    const watched_at=new Date().toISOString();
+    await sb.from("library").update({rating:v,lists:updated,watched_at}).eq("id",item.id);
+    onUpdate({...item,rating:v,lists:updated,watched_at});
     setShowRating(false);
     onClose();
   };
@@ -539,7 +572,32 @@ function DetailSheet({item,onClose,onUpdate,onDelete,onEpisodes,userId}){
                   {!isMovie&&item._meta.number_of_seasons&&<span style={{fontSize:12,color:TEXT2,padding:"4px 10px",border:`1px solid ${BORDER}`,borderRadius:6}}>{item._meta.number_of_seasons} seasons · {item._meta.number_of_episodes} eps</span>}
                 </div>
               )}
-              <p style={{fontSize:14,color:"#5C5248",lineHeight:1.8,margin:"0 0 20px"}}>{item._meta?.overview||"No description available."}</p>
+              <p style={{fontSize:14,color:"#5C5248",lineHeight:1.8,margin:"0 0 16px"}}>{item._meta?.overview||"No description available."}</p>
+              {/* Where to watch */}
+              {providers&&(providers.flatrate||providers.free||providers.ads)&&(
+                <div style={{marginBottom:20}}>
+                  <div style={{fontSize:11,fontWeight:800,letterSpacing:1.5,color:TEXT3,textTransform:"uppercase",marginBottom:10}}>Where to watch</div>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                    {[...(providers.flatrate||[]),(providers.free||[]),(providers.ads||[])].flat().filter((p,i,a)=>a.findIndex(x=>x.provider_id===p.provider_id)===i).slice(0,6).map(p=>(
+                      <div key={p.provider_id} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                        <img src={`https://image.tmdb.org/t/p/w92${p.logo_path}`} alt={p.provider_name} style={{width:40,height:40,borderRadius:10,display:"block"}}/>
+                        <span style={{fontSize:10,color:TEXT3,textAlign:"center",maxWidth:44,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.provider_name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* Rewatch count */}
+              {(item.lists||[]).includes("Finished")&&(
+                <div style={{marginBottom:20,display:"flex",alignItems:"center",gap:12}}>
+                  <div style={{fontSize:12,fontWeight:700,color:TEXT2}}>Times watched</div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <button onClick={async()=>{ const n=Math.max(1,watchCount-1); setWatchCount(n); await sb.from("library").update({watch_count:n}).eq("id",item.id); onUpdate({...item,watch_count:n}); }} style={{width:26,height:26,borderRadius:"50%",border:`1.5px solid ${BORDER}`,background:"none",cursor:"pointer",fontSize:14,color:TEXT2,display:"flex",alignItems:"center",justifyContent:"center"}}>−</button>
+                    <span style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:22,fontWeight:700,color:TEXT,minWidth:20,textAlign:"center"}}>{watchCount}</span>
+                    <button onClick={async()=>{ const n=watchCount+1; setWatchCount(n); await sb.from("library").update({watch_count:n}).eq("id",item.id); onUpdate({...item,watch_count:n}); }} style={{width:26,height:26,borderRadius:"50%",border:`1.5px solid ${BORDER}`,background:"none",cursor:"pointer",fontSize:14,color:TEXT2,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
+                  </div>
+                </div>
+              )}
               <button onClick={deleteItem} style={{background:"none",border:`1.5px solid ${BORDER}`,borderRadius:8,padding:"8px 16px",color:TEXT3,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>Remove from library</button>
             </div>
           )}
@@ -815,16 +873,12 @@ function StatsScreen({library,profile}){
   const watching=library.filter(i=>(i.lists||[]).includes("Watching"));
   const movies=library.filter(i=>i.media_type==="movie");
   const series=library.filter(i=>i.media_type==="tv");
-  const totalEps=library.reduce((acc,i)=>acc+(i.progress_season?((i.progress_season-1)*10+i.progress_episode):0),0);
-
-  // Watch time: use runtime for movies, avg 45min per episode for series
   const watchMins=library.reduce((acc,i)=>{
     if(i.media_type==="movie"&&(i.lists||[]).includes("Finished")) return acc+(i._meta?.runtime||100);
     if(i.media_type==="tv") return acc+(i.progress_episode||0)*45;
     return acc;
   },0);
   const watchHours=Math.round(watchMins/60);
-
   const genres={};
   library.forEach(i=>{ (i._meta?.genres||[]).forEach(g=>{ genres[g.name]=(genres[g.name]||0)+1; }); });
   const topGenres=Object.entries(genres).sort((a,b)=>b[1]-a[1]).slice(0,5);
@@ -840,7 +894,6 @@ function StatsScreen({library,profile}){
           </div>
         ))}
       </div>
-      {/* Watch time banner */}
       {watchHours>0&&(
         <div style={{background:SAGE_LIGHT,borderRadius:16,padding:"18px 20px",marginBottom:20,display:"flex",alignItems:"center",gap:14}}>
           <div style={{fontSize:32}}>🎬</div>
@@ -869,6 +922,211 @@ function StatsScreen({library,profile}){
   );
 }
 
+// ── Profile Screen ─────────────────────────────────────────────────────────────
+const COUNTRIES=[
+  {code:"GB",label:"🇬🇧 United Kingdom"},{code:"US",label:"🇺🇸 United States"},
+  {code:"ZA",label:"🇿🇦 South Africa"},{code:"AU",label:"🇦🇺 Australia"},
+  {code:"CA",label:"🇨🇦 Canada"},{code:"IE",label:"🇮🇪 Ireland"},
+  {code:"FR",label:"🇫🇷 France"},{code:"DE",label:"🇩🇪 Germany"},
+  {code:"NL",label:"🇳🇱 Netherlands"},{code:"ES",label:"🇪🇸 Spain"},
+];
+
+function ProfileScreen({profile,library,onClose,onSignOut,onProfileUpdate}){
+  const [pinned,setPinned]=useState(profile?.pinned_ids||[]);
+  const [picking,setPicking]=useState(false);
+  const [displayName,setDisplayName]=useState(profile?.display_name||"");
+  const [editingName,setEditingName]=useState(false);
+  const [savingName,setSavingName]=useState(false);
+  const [country,setCountry]=useState(profile?.country||"");
+  const finished=library.filter(i=>(i.lists||[]).includes("Finished")||i.rating);
+
+  const togglePin=async(id)=>{
+    let next;
+    if(pinned.includes(id)){ next=pinned.filter(x=>x!==id); }
+    else if(pinned.length<4){ next=[...pinned,id]; }
+    else return;
+    setPinned(next);
+    await sb.from("profiles").update({pinned_ids:next}).eq("id",profile.id);
+  };
+
+  const saveName=async()=>{
+    if(!displayName.trim()) return;
+    setSavingName(true);
+    await sb.from("profiles").update({display_name:displayName.trim()}).eq("id",profile.id);
+    onProfileUpdate({...profile,display_name:displayName.trim()});
+    setSavingName(false);
+    setEditingName(false);
+  };
+
+  const saveCountry=async(c)=>{
+    setCountry(c);
+    await sb.from("profiles").update({country:c}).eq("id",profile.id);
+    onProfileUpdate({...profile,country:c});
+  };
+
+  const pinnedItems=pinned.map(id=>library.find(i=>i.id===id)).filter(Boolean);
+
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:300,background:BG,display:"flex",flexDirection:"column"}}>
+      <div style={{padding:"20px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+        <button onClick={onClose} style={{background:CARD,border:"none",width:36,height:36,borderRadius:"50%",cursor:"pointer",fontSize:20,color:TEXT,display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
+        <div style={{fontSize:13,fontWeight:800,letterSpacing:2,textTransform:"uppercase"}}><span style={{color:TEXT}}>SEEN</span><span style={{color:SAGE}}>IT</span></div>
+        <div style={{width:36}}/>
+      </div>
+
+      <div style={{flex:1,overflowY:"auto",padding:"24px 20px 60px"}}>
+        {/* Avatar + editable name */}
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",marginBottom:32}}>
+          <Av name={displayName||profile?.username||"?"} size={72}/>
+          <div style={{marginTop:14,textAlign:"center"}}>
+            {editingName?(
+              <div style={{display:"flex",gap:8,alignItems:"center",marginTop:4}}>
+                <input value={displayName} onChange={e=>setDisplayName(e.target.value)}
+                  onKeyDown={e=>e.key==="Enter"&&saveName()}
+                  style={{background:CARD,border:"none",borderRadius:10,padding:"8px 12px",fontFamily:"'Instrument Serif',Georgia,serif",fontSize:20,color:TEXT,outline:"none",textAlign:"center",width:180}}
+                  autoFocus/>
+                <button onClick={saveName} disabled={savingName} style={{background:SAGE,border:"none",borderRadius:8,padding:"8px 14px",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
+                  {savingName?"…":"Save"}
+                </button>
+              </div>
+            ):(
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:24,color:TEXT,fontWeight:700}}>{displayName||profile?.username}</div>
+                <button onClick={()=>setEditingName(true)} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,color:TEXT3,padding:2}}>✏️</button>
+              </div>
+            )}
+            <div style={{fontSize:13,color:TEXT3,marginTop:4}}>@{profile?.username}</div>
+          </div>
+        </div>
+
+        {/* Stats summary */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:28}}>
+          {[{label:"Finished",value:library.filter(i=>(i.lists||[]).includes("Finished")).length},{label:"Watching",value:library.filter(i=>(i.lists||[]).includes("Watching")).length},{label:"Total",value:library.length}].map((s,i)=>(
+            <div key={i} style={{background:CARD,borderRadius:14,padding:"14px 12px",textAlign:"center"}}>
+              <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:28,fontWeight:700,color:TEXT}}>{s.value}</div>
+              <div style={{fontSize:11,color:TEXT2,marginTop:4}}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Pinned favourites */}
+        <div style={{marginBottom:28}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <SectionLabel>Pinned favourites</SectionLabel>
+            <button onClick={()=>setPicking(p=>!p)} style={{background:"none",border:`1.5px solid ${BORDER}`,borderRadius:20,padding:"4px 12px",fontSize:11,fontWeight:700,color:TEXT2,cursor:"pointer",fontFamily:"inherit"}}>{picking?"Done":"Edit"}</button>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
+            {[0,1,2,3].map(i=>{
+              const item=pinnedItems[i];
+              const title=item?._meta?.name||item?._meta?.title||"";
+              return(
+                <div key={i} onClick={()=>{ if(picking&&item) togglePin(item.id); }} style={{aspectRatio:"2/3",borderRadius:10,overflow:"hidden",background:CARD,cursor:picking&&item?"pointer":"default",position:"relative"}}>
+                  {item?._meta?.poster_path
+                    ?<img src={IMG(item._meta.poster_path)} alt={title} style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+                    :<div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:TEXT3,fontSize:22}}>{item?"🎬":"+"}</div>}
+                  {picking&&item&&<div style={{position:"absolute",inset:0,background:"rgba(28,28,26,0.45)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>✕</div>}
+                  {!item&&<div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:TEXT3,fontSize:24}}>+</div>}
+                </div>
+              );
+            })}
+          </div>
+          {picking&&(
+            <div style={{marginTop:14}}>
+              <div style={{fontSize:12,color:TEXT2,marginBottom:10}}>Tap to add (max 4):</div>
+              <div style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:4}}>
+                {finished.filter(i=>!pinned.includes(i.id)).map(item=>{
+                  const title=item._meta?.name||item._meta?.title||"—";
+                  return(
+                    <div key={item.id} onClick={()=>togglePin(item.id)} style={{flexShrink:0,cursor:"pointer",opacity:pinned.length>=4?0.4:1}}>
+                      <Poster path={item._meta?.poster_path} title={title} w={56} radius={8}/>
+                      <div style={{fontSize:10,color:TEXT3,marginTop:4,width:56,textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Settings */}
+        <div style={{marginBottom:28}}>
+          <SectionLabel>Settings</SectionLabel>
+          <div style={{background:CARD,borderRadius:16,overflow:"hidden"}}>
+            <div style={{padding:"14px 16px",borderBottom:`1px solid ${BORDER}`}}>
+              <div style={{fontSize:13,fontWeight:700,color:TEXT,marginBottom:8}}>Where to watch country</div>
+              <select value={country} onChange={e=>saveCountry(e.target.value)}
+                style={{width:"100%",background:BG,border:`1px solid ${BORDER}`,borderRadius:8,padding:"8px 12px",fontSize:14,fontFamily:"inherit",color:TEXT,outline:"none"}}>
+                <option value="">Auto-detect</option>
+                {COUNTRIES.map(c=><option key={c.code} value={c.code}>{c.label}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Sign out */}
+        <button onClick={onSignOut} style={{width:"100%",background:"none",border:`1.5px solid ${BORDER}`,borderRadius:12,padding:"13px",color:TEXT2,fontWeight:700,fontSize:14,fontFamily:"inherit",cursor:"pointer"}}>
+          Sign out
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Monthly Wrapped ────────────────────────────────────────────────────────────
+function MonthlyWrapped({library,profile,onClose}){
+  const now=new Date();
+  const monthName=now.toLocaleDateString("en-GB",{month:"long"});
+  const year=now.getFullYear();
+  const monthStart=new Date(year,now.getMonth(),1).toISOString();
+
+  const thisMonth=library.filter(i=>i.watched_at&&i.watched_at>=monthStart&&(i.lists||[]).includes("Finished"));
+  const topRated=[...thisMonth].sort((a,b)=>(b.rating||0)-(a.rating||0))[0];
+  const genres={};
+  thisMonth.forEach(i=>(i._meta?.genres||[]).forEach(g=>{genres[g.name]=(genres[g.name]||0)+1;}));
+  const topGenre=Object.entries(genres).sort((a,b)=>b[1]-a[1])[0]?.[0];
+  const watchMins=thisMonth.reduce((acc,i)=>acc+(i._meta?.runtime||(i.media_type==="tv"?(i.progress_episode||0)*45:100)),0);
+  const watchHours=Math.round(watchMins/60);
+  const name=profile?.display_name||profile?.username||"You";
+
+  if(thisMonth.length===0) return null;
+
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:350,background:"rgba(28,28,26,0.7)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+      <div style={{background:BG,borderRadius:"20px 20px 0 0",width:"100%",maxWidth:430,padding:"28px 24px 48px",position:"relative"}}>
+        <button onClick={onClose} style={{position:"absolute",top:14,right:16,background:CARD,border:"none",width:30,height:30,borderRadius:"50%",color:TEXT2,fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+        <div style={{fontSize:10,fontWeight:800,letterSpacing:2,color:SAGE,textTransform:"uppercase",marginBottom:6}}>Monthly Wrapped</div>
+        <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:28,color:TEXT,marginBottom:24,lineHeight:1.2}}>{name}'s {monthName} in review</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+          <div style={{background:TEXT,borderRadius:16,padding:"18px 16px"}}>
+            <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:40,color:BG,fontWeight:700,lineHeight:1}}>{thisMonth.length}</div>
+            <div style={{fontSize:12,color:TEXT3,marginTop:6}}>finished this month</div>
+          </div>
+          <div style={{background:CARD,borderRadius:16,padding:"18px 16px"}}>
+            <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:40,color:TEXT,fontWeight:700,lineHeight:1}}>{watchHours}h</div>
+            <div style={{fontSize:12,color:TEXT2,marginTop:6}}>hours watched</div>
+          </div>
+        </div>
+        {topRated&&(
+          <div style={{background:SAGE_LIGHT,borderRadius:16,padding:"14px 16px",marginBottom:10,display:"flex",gap:12,alignItems:"center"}}>
+            <Poster path={topRated._meta?.poster_path} title={topRated._meta?.name||topRated._meta?.title} w={44} radius={8}/>
+            <div>
+              <div style={{fontSize:11,color:SAGE,fontWeight:800,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Top rated</div>
+              <div style={{fontSize:15,fontWeight:700,color:TEXT}}>{topRated._meta?.name||topRated._meta?.title}</div>
+              <Stars value={topRated.rating} size={12}/>
+            </div>
+          </div>
+        )}
+        {topGenre&&(
+          <div style={{background:CARD,borderRadius:16,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{fontSize:13,color:TEXT2}}>Favourite genre</div>
+            <div style={{fontSize:14,fontWeight:700,color:TEXT}}>{topGenre}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main App ───────────────────────────────────────────────────────────────────
 export default function SeenIt(){
   const [session,setSession]=useState(null);
@@ -882,6 +1140,8 @@ export default function SeenIt(){
   const [libTab,setLibTab]=useState("all");
   const [statusTab,setStatusTab]=useState("all");
   const [libSearch,setLibSearch]=useState("");
+  const [showProfile,setShowProfile]=useState(false);
+  const [showWrapped,setShowWrapped]=useState(false);
   const [authLoading,setAuthLoading]=useState(true);
   const [upcoming,setUpcoming]=useState([]);
   const [suggested,setSuggested]=useState([]);
@@ -926,6 +1186,13 @@ export default function SeenIt(){
       const sug=await fetchRecommended([{id:topGenreId}]);
       const libIds=new Set(enriched.map(i=>i.tmdb_id));
       setSuggested(sug.filter(s=>!libIds.has(s.id)).slice(0,8));
+    }
+    // Show monthly wrapped once per month
+    const wrappedKey=`wrapped_${new Date().getFullYear()}_${new Date().getMonth()}`;
+    if(!localStorage.getItem(wrappedKey)){
+      const monthStart=new Date(new Date().getFullYear(),new Date().getMonth(),1).toISOString();
+      const hasFinished=enriched.some(i=>i.watched_at&&i.watched_at>=monthStart&&(i.lists||[]).includes("Finished"));
+      if(hasFinished){ setShowWrapped(true); localStorage.setItem(wrappedKey,"1"); }
     }
   };
 
@@ -992,6 +1259,7 @@ export default function SeenIt(){
         @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@400;500;600;700;800&display=swap');
         *{box-sizing:border-box;margin:0;padding:0;}
         ::-webkit-scrollbar{width:0;height:0;}
+        input,textarea,select{font-size:16px!important;}
         input::placeholder,textarea::placeholder{color:${TEXT3};}
         textarea{outline:none;}
         @keyframes spin{to{transform:rotate(360deg);}}
@@ -1002,9 +1270,7 @@ export default function SeenIt(){
       {/* ── HEADER ── */}
       <div style={{padding:"20px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexShrink:0}}>
         <div>
-          <div style={{fontSize:13,fontWeight:800,letterSpacing:2,textTransform:"uppercase",marginBottom:2}}>
-            <span style={{color:TEXT}}>SEEN</span><span style={{color:SAGE}}>IT</span>
-          </div>
+          <div style={{fontSize:13,fontWeight:800,letterSpacing:2,textTransform:"uppercase"}}><span style={{color:TEXT}}>SEEN</span><span style={{color:SAGE}}>IT</span></div>
           <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:26,color:TEXT,lineHeight:1.2,marginTop:2}}>
             {tab==="home"?(profile?.display_name?`Hey, ${profile.display_name}.`:"What are you watching?"):tab==="library"?"Your library":tab==="friends"?"Your people":"Your stats"}
           </div>
@@ -1013,7 +1279,7 @@ export default function SeenIt(){
           <button onClick={()=>setSearching(true)} style={{width:40,height:40,borderRadius:"50%",background:TEXT,border:"none",color:BG,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={BG} strokeWidth="2.5" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           </button>
-          <div onClick={signOut} style={{cursor:"pointer"}} title="Sign out"><Av name={profile?.display_name||profile?.username||"?"} size={40}/></div>
+          <div onClick={()=>setShowProfile(true)} style={{cursor:"pointer"}}><Av name={profile?.display_name||profile?.username||"?"} size={40}/></div>
         </div>
       </div>
 
@@ -1129,7 +1395,7 @@ export default function SeenIt(){
           <div className="up">
             {/* Series / Movies / All tabs */}
             <div style={{display:"flex",gap:0,padding:"0 20px",marginBottom:12,borderBottom:`1px solid ${BORDER}`}}>
-              {[{id:"all",label:"All"},{ id:"series",label:"Series"},{id:"movies",label:"Movies"}].map(t=>(
+              {[{id:"all",label:"All"},{id:"series",label:"Series"},{id:"movies",label:"Movies"}].map(t=>(
                 <button key={t.id} onClick={()=>setLibTab(t.id)} style={{padding:"10px 16px",background:"none",border:"none",borderBottom:`2px solid ${libTab===t.id?SAGE:"transparent"}`,color:libTab===t.id?SAGE:TEXT3,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>{t.label}</button>
               ))}
             </div>
@@ -1205,8 +1471,10 @@ export default function SeenIt(){
 
       {/* ── OVERLAYS ── */}
       {searching&&<SearchOverlay onClose={()=>setSearching(false)} onAdd={addToLibrary} library={library}/>}
-      {detail&&!episodes&&<DetailSheet item={detail} onClose={()=>setDetail(null)} onUpdate={updateItem} onDelete={deleteItem} onEpisodes={()=>setEpisodes(detail)} userId={session?.user?.id}/>}
+      {detail&&!episodes&&<DetailSheet item={detail} onClose={()=>setDetail(null)} onUpdate={updateItem} onDelete={deleteItem} onEpisodes={()=>setEpisodes(detail)} userId={session?.user?.id} profile={profile}/>}
       {episodes&&<EpisodeSheet item={episodes} userId={session?.user?.id} onClose={()=>setEpisodes(null)} onProgressSaved={updated=>{ updateItem(updated); setEpisodes(null); }}/>}
+      {showProfile&&<ProfileScreen profile={profile} library={library} onClose={()=>setShowProfile(false)} onSignOut={()=>{ setShowProfile(false); signOut(); }} onProfileUpdate={setProfile}/>}
+      {showWrapped&&<MonthlyWrapped library={library} profile={profile} onClose={()=>setShowWrapped(false)}/>}
     </div>
   );
 }
