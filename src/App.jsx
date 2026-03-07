@@ -393,6 +393,11 @@ function DetailSheet({item,onClose,onUpdate,onDelete,onEpisodes,userId,profile})
   const isWatching=(item.lists||[]).includes("Watching");
 
   useEffect(()=>{
+    document.body.style.overflow="hidden";
+    return()=>{ document.body.style.overflow=""; };
+  },[]);
+
+  useEffect(()=>{
     sb.from("notes").select("*").eq("user_id",userId).eq("tmdb_id",item.tmdb_id).order("created_at",{ascending:false}).then(({data})=>setNotes(data||[]));
     // Fetch streaming providers
     const type=item.media_type==="tv"?"tv":"movie";
@@ -461,8 +466,8 @@ function DetailSheet({item,onClose,onUpdate,onDelete,onEpisodes,userId,profile})
     <>
     {showRating&&<RatingModal title={title} onRate={finishWithRating} onSkip={()=>{ setList("Finished"); setShowRating(false); onClose(); }}/>}
     <div style={{position:"fixed",inset:0,zIndex:200}} onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div style={{position:"absolute",inset:0,background:"rgba(28,28,26,0.5)"}} onClick={onClose}/>
-      <div style={{position:"absolute",bottom:0,left:0,right:0,maxHeight:"91dvh",background:BG,borderRadius:"20px 20px 0 0",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{position:"fixed",inset:0,background:"rgba(28,28,26,0.5)"}} onClick={onClose}/>
+      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,maxHeight:"91dvh",background:BG,borderRadius:"20px 20px 0 0",display:"flex",flexDirection:"column",overflow:"hidden",zIndex:201}}>
         {/* Backdrop */}
         <div style={{position:"relative",height:190,flexShrink:0}}>
           {backdrop?<img src={IMG(backdrop,"w780")} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
@@ -906,12 +911,18 @@ function DiscoverPreview({item,library,onClose,onAdd,onOpenDetail}){
   const overview=meta?.overview||item.overview||"";
   const genres=(meta?.genres||[]).slice(0,3).map(g=>g.name).join(" · ");
 
+  // Lock background scroll while sheet is open
+  useEffect(()=>{
+    document.body.style.overflow="hidden";
+    return()=>{ document.body.style.overflow=""; };
+  },[]);
+
   return(
-    <div style={{position:"fixed",inset:0,zIndex:450}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+    <div style={{position:"fixed",inset:0,zIndex:450,pointerEvents:"all"}} onClick={e=>e.target===e.currentTarget&&onClose()}>
       {/* Scrim */}
-      <div style={{position:"absolute",inset:0,background:"rgba(28,28,26,0.45)"}} onClick={onClose}/>
-      {/* Sheet */}
-      <div style={{position:"absolute",bottom:0,left:0,right:0,maxWidth:430,margin:"0 auto",background:BG,borderRadius:"22px 22px 0 0",maxHeight:"80dvh",display:"flex",flexDirection:"column"}}>
+      <div style={{position:"fixed",inset:0,background:"rgba(28,28,26,0.45)"}} onClick={onClose}/>
+      {/* Sheet — always anchored to bottom of viewport */}
+      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,background:BG,borderRadius:"22px 22px 0 0",maxHeight:"80dvh",display:"flex",flexDirection:"column",zIndex:451}}>
         {/* Drag handle */}
         <div style={{display:"flex",justifyContent:"center",padding:"12px 0 0"}}>
           <div style={{width:36,height:4,borderRadius:2,background:BORDER}}/>
