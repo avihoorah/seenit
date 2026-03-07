@@ -901,92 +901,80 @@ function DiscoverPreview({item,library,onClose,onAdd,onOpenDetail}){
     }).catch(()=>{});
   },[item.id]);
 
-  // If already in library, hand off to DetailSheet immediately
-  if(inLib&&libItem&&onOpenDetail){
-    onClose();
-    onOpenDetail(libItem);
-    return null;
-  }
+  // If already in library, open DetailSheet instead
+  useEffect(()=>{
+    if(inLib&&libItem&&onOpenDetail){
+      onClose();
+      onOpenDetail(libItem);
+    }
+  },[inLib]);
+
+  if(inLib&&libItem) return null;
 
   const overview=meta?.overview||item.overview||"";
   const genres=(meta?.genres||[]).slice(0,3).map(g=>g.name).join(" · ");
 
-  // Lock background scroll while sheet is open
-  useEffect(()=>{
-    document.body.style.overflow="hidden";
-    return()=>{ document.body.style.overflow=""; };
-  },[]);
-
   return(
-    <div style={{position:"fixed",inset:0,zIndex:450,pointerEvents:"all"}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+    <div style={{position:"fixed",inset:0,zIndex:450,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"}}
+      onClick={e=>e.target===e.currentTarget&&onClose()}>
       {/* Scrim */}
-      <div style={{position:"fixed",inset:0,background:"rgba(28,28,26,0.45)"}} onClick={onClose}/>
-      {/* Sheet — always anchored to bottom of viewport */}
-      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,background:BG,borderRadius:"22px 22px 0 0",maxHeight:"80dvh",display:"flex",flexDirection:"column",zIndex:451}}>
-        {/* Drag handle */}
-        <div style={{display:"flex",justifyContent:"center",padding:"12px 0 0"}}>
-          <div style={{width:36,height:4,borderRadius:2,background:BORDER}}/>
-        </div>
-        {/* Header row — poster + title block */}
-        <div style={{display:"flex",gap:14,padding:"16px 20px 0",alignItems:"flex-start"}}>
-          {/* Poster — fixed size, no overflow issues */}
+      <div style={{position:"fixed",inset:0,background:"rgba(28,28,26,0.6)"}} onClick={onClose}/>
+      {/* Centred card — always in the middle of the screen */}
+      <div style={{position:"relative",zIndex:451,width:"100%",maxWidth:390,background:BG,borderRadius:20,overflow:"hidden",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        {/* Poster + info header */}
+        <div style={{display:"flex",gap:14,padding:"20px 20px 0",alignItems:"flex-start"}}>
           <div style={{flexShrink:0,width:72,borderRadius:10,overflow:"hidden",boxShadow:"0 4px 12px rgba(0,0,0,0.15)"}}>
             {item.poster_path
               ?<img src={IMG(item.poster_path)} alt={title} style={{width:"100%",display:"block"}}/>
               :<div style={{aspectRatio:"2/3",background:CARD,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>🎬</div>}
           </div>
-          {/* Title block */}
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:20,fontWeight:700,color:TEXT,lineHeight:1.2,wordBreak:"break-word"}}>{title}</div>
-            <div style={{fontSize:12,color:TEXT2,marginTop:4}}>{type==="tv"?"Series":"Film"}{year?" · "+year:""}</div>
-            {genres&&<div style={{fontSize:11,color:TEXT3,marginTop:3}}>{genres}</div>}
+          <div style={{flex:1,minWidth:0,paddingTop:2}}>
+            <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:19,fontWeight:700,color:TEXT,lineHeight:1.2}}>{title}</div>
+            <div style={{fontSize:12,color:TEXT2,marginTop:3}}>{type==="tv"?"Series":"Film"}{year?" · "+year:""}</div>
+            {genres&&<div style={{fontSize:11,color:TEXT3,marginTop:2}}>{genres}</div>}
             {item.vote_average>0&&(
-              <div style={{display:"inline-flex",alignItems:"center",gap:5,background:TEXT,color:BG,padding:"3px 8px",borderRadius:6,marginTop:6}}>
-                <span style={{fontSize:12,fontWeight:700}}>★ {item.vote_average?.toFixed(1)}</span>
+              <div style={{display:"inline-flex",background:TEXT,color:BG,padding:"2px 8px",borderRadius:6,marginTop:6}}>
+                <span style={{fontSize:11,fontWeight:700}}>★ {item.vote_average?.toFixed(1)}</span>
               </div>
             )}
           </div>
-          {/* Close button */}
-          <button onClick={onClose} style={{flexShrink:0,background:CARD,border:"none",width:30,height:30,borderRadius:"50%",color:TEXT2,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+          <button onClick={onClose} style={{flexShrink:0,background:CARD,border:"none",width:28,height:28,borderRadius:"50%",color:TEXT2,fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
         </div>
 
-        {/* Scrollable body */}
-        <div style={{flex:1,overflowY:"auto",padding:"16px 20px 40px"}}>
-          {/* Overview */}
+        {/* Scrollable body — constrained height so it never grows taller than viewport */}
+        <div style={{maxHeight:"45vh",overflowY:"auto",padding:"14px 20px 0"}}>
           {overview&&(
-            <p style={{fontSize:14,color:"#5C5248",lineHeight:1.75,marginBottom:18,margin:"0 0 18px 0"}}>
-              {overview.slice(0,280)}{overview.length>280?"…":""}
+            <p style={{fontSize:13,color:"#5C5248",lineHeight:1.7,margin:"0 0 14px 0"}}>
+              {overview.slice(0,240)}{overview.length>240?"…":""}
             </p>
           )}
-
-          {/* Where to watch */}
           {providers&&(providers.flatrate||providers.free)&&(
-            <div style={{marginBottom:20}}>
-              <div style={{fontSize:11,fontWeight:800,letterSpacing:1.5,color:TEXT3,textTransform:"uppercase",marginBottom:10}}>Where to watch</div>
-              <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:10,fontWeight:800,letterSpacing:1.5,color:TEXT3,textTransform:"uppercase",marginBottom:8}}>Where to watch</div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                 {[...(providers.flatrate||[]),(providers.free||[])].flat()
                   .filter((p,i,a)=>a.findIndex(x=>x.provider_id===p.provider_id)===i)
-                  .slice(0,6).map(p=>(
-                  <div key={p.provider_id} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-                    <img src={`https://image.tmdb.org/t/p/w92${p.logo_path}`} alt={p.provider_name} style={{width:40,height:40,borderRadius:10}}/>
-                    <span style={{fontSize:10,color:TEXT3,maxWidth:44,textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.provider_name}</span>
+                  .slice(0,5).map(p=>(
+                  <div key={p.provider_id} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                    <img src={`https://image.tmdb.org/t/p/w92${p.logo_path}`} alt={p.provider_name} style={{width:36,height:36,borderRadius:8}}/>
+                    <span style={{fontSize:9,color:TEXT3,maxWidth:40,textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.provider_name}</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
+        </div>
 
-          {/* Action buttons */}
-          <div style={{display:"flex",gap:10}}>
-            <button onClick={()=>{ onAdd({...item,media_type:type,lists:["Watchlist"]}); onClose(); }}
-              style={{flex:1,background:CARD,border:`1.5px solid ${BORDER}`,borderRadius:14,padding:"14px",color:TEXT,fontWeight:700,fontSize:14,fontFamily:"inherit",cursor:"pointer"}}>
-              + Watchlist
-            </button>
-            <button onClick={()=>{ onAdd({...item,media_type:type,lists:["Watching"]}); onClose(); }}
-              style={{flex:1,background:TEXT,border:"none",borderRadius:14,padding:"14px",color:BG,fontWeight:700,fontSize:14,fontFamily:"inherit",cursor:"pointer"}}>
-              ▶ Start Watching
-            </button>
-          </div>
+        {/* Action buttons — always visible at bottom of card */}
+        <div style={{display:"flex",gap:10,padding:"14px 20px 20px"}}>
+          <button onClick={()=>{ onAdd({...item,media_type:type,lists:["Watchlist"]}); onClose(); }}
+            style={{flex:1,background:CARD,border:`1.5px solid ${BORDER}`,borderRadius:12,padding:"12px",color:TEXT,fontWeight:700,fontSize:13,fontFamily:"inherit",cursor:"pointer"}}>
+            + Watchlist
+          </button>
+          <button onClick={()=>{ onAdd({...item,media_type:type,lists:["Watching"]}); onClose(); }}
+            style={{flex:1,background:TEXT,border:"none",borderRadius:12,padding:"12px",color:BG,fontWeight:700,fontSize:13,fontFamily:"inherit",cursor:"pointer"}}>
+            ▶ Start Watching
+          </button>
         </div>
       </div>
     </div>
@@ -1001,7 +989,7 @@ const GENRES=[
   {id:10749,label:"Romance"},{id:99,label:"Documentary"},{id:16,label:"Animation"},{id:80,label:"Crime"},
 ];
 
-function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail}){
+function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail,suggested=[]}){
   const [data,setData]=useState(null);
   const [loading,setLoading]=useState(true);
   const [featuredIdx,setFeaturedIdx]=useState(0);
@@ -1206,6 +1194,24 @@ function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail}){
                 </div>
               )}
             </>
+          )}
+
+          {/* You might like — only on Popular, only when not searching */}
+          {isPopular&&!isSearching&&suggested.length>0&&(
+            <div style={{marginBottom:28}}>
+              <div style={{padding:"0 20px",marginBottom:14}}><SectionLabel>You might like</SectionLabel></div>
+              <div style={{display:"flex",gap:10,overflowX:"auto",padding:"0 20px"}}>
+                {suggested.filter(i=>!libIds.has(i.id)).map(item=>(
+                  <div key={item.id} style={{flexShrink:0,cursor:"pointer"}} onClick={()=>setPreview({...item,media_type:item.media_type||"tv"})}>
+                    <div style={{position:"relative"}}>
+                      <Poster path={item.poster_path} title={item.name||item.title} w={100} radius={12}/>
+                      {item.vote_average>0&&<div style={{position:"absolute",bottom:6,right:6,background:"rgba(28,28,26,0.75)",borderRadius:6,padding:"2px 6px",fontSize:11,fontWeight:700,color:"#fff"}}>★ {item.vote_average?.toFixed(1)}</div>}
+                    </div>
+                    <div style={{fontSize:11,color:TEXT2,marginTop:6,width:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500}}>{item.name||item.title}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </>
       )}
@@ -1711,20 +1717,6 @@ export default function SeenIt(){
               </div>
             )}
 
-            {/* You might like */}
-            {suggested.length>0&&(
-              <div style={{marginBottom:28}}>
-                <div style={{padding:"0 20px",marginBottom:14}}><SectionLabel>You might like</SectionLabel></div>
-                <div style={{display:"flex",gap:10,overflowX:"auto",padding:"0 20px"}}>
-                  {suggested.map(item=>(
-                    <div key={item.id} onClick={()=>setDiscoverPreview({...item,media_type:"tv"})} style={{flexShrink:0,cursor:"pointer"}}>
-                      <Poster path={item.poster_path} title={item.name||item.title} w={80} radius={12}/>
-                      <div style={{fontSize:11,color:TEXT2,marginTop:6,width:80,textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500}}>{item.name||item.title}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         )}
 
@@ -1792,7 +1784,7 @@ export default function SeenIt(){
         )}
 
         {tab==="friends"&&session&&<div className="up"><FriendsScreen userId={session.user.id}/></div>}
-        {tab==="discover"&&<div className="up"><DiscoverScreen library={library} onAdd={addToLibrary} focusSearch={focusSearch} onOpenDetail={setDetail}/></div>}
+        {tab==="discover"&&<div className="up"><DiscoverScreen library={library} onAdd={addToLibrary} focusSearch={focusSearch} onOpenDetail={setDetail} suggested={suggested}/></div>}
       </div>
 
       {/* ── BOTTOM NAV ── */}
