@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL = "https://lenafneepzceeiqsonul.supabase.co";
-const SUPABASE_KEY = "sb_publishable_3sDR6w3j31E1zSphzowRYg_gTGQKYHp";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const TMDB_KEY = "4b152a91b5a3963ff8b43773eaa990c8";
+const TMDB_KEY = import.meta.env.VITE_TMDB_KEY;
 const IMG = (p, size = "w500") => p ? `https://image.tmdb.org/t/p/${size}${p}` : null;
 
 const SAGE = "#7A9E7E";
@@ -108,8 +108,8 @@ function SectionLabel({children}){
 function StatusBadge({lists=[]}){
   const watching=lists.includes("Watching");
   const finished=lists.includes("Finished");
-  if(finished) return <span style={{fontSize:10,fontWeight:700,background:SAGE_LIGHT,color:SAGE,padding:"2px 8px",borderRadius:10}}>Finished</span>;
-  if(watching) return <span style={{fontSize:10,fontWeight:700,background:"#FFF3E0",color:"#E65100",padding:"2px 8px",borderRadius:10}}>Watching</span>;
+  if(finished) return <span style={{fontSize:10,fontWeight:700,background:"#FFF3E0",color:"#E65100",padding:"2px 8px",borderRadius:10}}>Finished</span>;
+  if(watching) return <span style={{fontSize:10,fontWeight:700,background:SAGE_LIGHT,color:SAGE,padding:"2px 8px",borderRadius:10}}>Watching</span>;
   return <span style={{fontSize:10,fontWeight:700,background:CARD,color:TEXT3,padding:"2px 8px",borderRadius:10}}>Watchlist</span>;
 }
 
@@ -843,6 +843,7 @@ export default function SeenIt(){
   const [episodes,setEpisodes]=useState(null);
   const [searching,setSearching]=useState(false);
   const [libTab,setLibTab]=useState("all");
+  const [statusTab,setStatusTab]=useState("all");
   const [authLoading,setAuthLoading]=useState(true);
   const [upcoming,setUpcoming]=useState([]);
   const [suggested,setSuggested]=useState([]);
@@ -912,7 +913,8 @@ export default function SeenIt(){
 
   const watching=library.filter(i=>(i.lists||[]).includes("Watching"));
   const watchlist=library.filter(i=>(i.lists||[]).includes("Watchlist"));
-  const libFiltered=libTab==="all"?library:libTab==="series"?library.filter(i=>i.media_type==="tv"):library.filter(i=>i.media_type==="movie");
+  const libByType=libTab==="all"?library:libTab==="series"?library.filter(i=>i.media_type==="tv"):library.filter(i=>i.media_type==="movie");
+  const libFiltered=statusTab==="all"?libByType:libByType.filter(i=>(i.lists||[]).includes(statusTab));
 
   const TABS=[
     {id:"home",label:"Home",icon:(active)=>(
@@ -1085,10 +1087,19 @@ export default function SeenIt(){
         {tab==="library"&&(
           <div className="up">
             {/* Series / Movies / All tabs */}
-            <div style={{display:"flex",gap:0,padding:"0 20px",marginBottom:16,borderBottom:`1px solid ${BORDER}`}}>
+            <div style={{display:"flex",gap:0,padding:"0 20px",marginBottom:12,borderBottom:`1px solid ${BORDER}`}}>
               {[{id:"all",label:"All"},{ id:"series",label:"Series"},{id:"movies",label:"Movies"}].map(t=>(
                 <button key={t.id} onClick={()=>setLibTab(t.id)} style={{padding:"10px 16px",background:"none",border:"none",borderBottom:`2px solid ${libTab===t.id?SAGE:"transparent"}`,color:libTab===t.id?SAGE:TEXT3,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>{t.label}</button>
               ))}
+            </div>
+            {/* Status filter pills */}
+            <div style={{display:"flex",gap:8,padding:"0 20px",marginBottom:16,overflowX:"auto"}}>
+              {[{id:"all",label:"All"},{id:"Watching",label:"Watching",color:SAGE},{id:"Watchlist",label:"Watchlist"},{id:"Finished",label:"Finished",color:"#E65100"}].map(s=>{
+                const active=statusTab===s.id;
+                return(
+                  <button key={s.id} onClick={()=>setStatusTab(s.id)} style={{flexShrink:0,padding:"6px 14px",borderRadius:20,border:`1.5px solid ${active?(s.color||TEXT):BORDER}`,background:active?(s.color||TEXT):"transparent",color:active?"#fff":TEXT2,fontFamily:"inherit",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s"}}>{s.label}</button>
+                );
+              })}
             </div>
             {loadingLib&&<div style={{display:"flex",justifyContent:"center",padding:"30px 0"}}><Spin/></div>}
             {/* Grid view */}
@@ -1101,8 +1112,8 @@ export default function SeenIt(){
                       <div style={{aspectRatio:"2/3",borderRadius:10,overflow:"hidden",background:CARD,position:"relative"}}>
                         {item._meta?.poster_path?<img src={IMG(item._meta.poster_path)} alt={title} style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
                           :<div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:TEXT3,fontSize:22}}>🎬</div>}
-                        {/* Status dot */}
-                        <div style={{position:"absolute",top:6,right:6,width:8,height:8,borderRadius:"50%",background:(item.lists||[]).includes("Finished")?SAGE:(item.lists||[]).includes("Watching")?"#FF8C00":"#C0B8AE",border:"1.5px solid rgba(255,255,255,0.8)"}}/>
+                        {/* Status bar */}
+                        <div style={{position:"absolute",bottom:0,left:0,right:0,height:4,background:(item.lists||[]).includes("Finished")?"#E65100":(item.lists||[]).includes("Watching")?SAGE:"#C0B8AE"}}/>
                       </div>
                       {item.rating&&<div style={{marginTop:4}}><Stars value={item.rating} size={10}/></div>}
                     </div>
@@ -1118,9 +1129,9 @@ export default function SeenIt(){
               {/* Legend */}
               {libFiltered.length>0&&(
                 <div style={{display:"flex",gap:16,marginTop:20,justifyContent:"center"}}>
-                  {[{color:SAGE,label:"Finished"},{color:"#FF8C00",label:"Watching"},{color:"#C0B8AE",label:"Watchlist"}].map(l=>(
+                  {[{color:"#E65100",label:"Finished"},{color:SAGE,label:"Watching"},{color:"#C0B8AE",label:"Watchlist"}].map(l=>(
                     <div key={l.label} style={{display:"flex",gap:5,alignItems:"center"}}>
-                      <div style={{width:8,height:8,borderRadius:"50%",background:l.color}}/>
+                      <div style={{width:16,height:4,borderRadius:2,background:l.color}}/>
                       <span style={{fontSize:11,color:TEXT2}}>{l.label}</span>
                     </div>
                   ))}
