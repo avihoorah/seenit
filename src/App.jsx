@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import ReactDOM from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -914,12 +915,12 @@ function DiscoverPreview({item,library,onClose,onAdd,onOpenDetail}){
   const overview=meta?.overview||item.overview||"";
   const genres=(meta?.genres||[]).slice(0,3).map(g=>g.name).join(" · ");
 
-  return(
+  return ReactDOM.createPortal(
     <div style={{position:"fixed",inset:0,zIndex:450,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"}}
       onClick={e=>e.target===e.currentTarget&&onClose()}>
       {/* Scrim */}
       <div style={{position:"fixed",inset:0,background:"rgba(28,28,26,0.6)"}} onClick={onClose}/>
-      {/* Centred card — always in the middle of the screen */}
+      {/* Centred card — always in the middle of the viewport */}
       <div style={{position:"relative",zIndex:451,width:"100%",maxWidth:390,background:BG,borderRadius:20,overflow:"hidden",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
         {/* Poster + info header */}
         <div style={{display:"flex",gap:14,padding:"20px 20px 0",alignItems:"flex-start"}}>
@@ -940,8 +941,7 @@ function DiscoverPreview({item,library,onClose,onAdd,onOpenDetail}){
           </div>
           <button onClick={onClose} style={{flexShrink:0,background:CARD,border:"none",width:28,height:28,borderRadius:"50%",color:TEXT2,fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
         </div>
-
-        {/* Scrollable body — constrained height so it never grows taller than viewport */}
+        {/* Scrollable body */}
         <div style={{maxHeight:"45vh",overflowY:"auto",padding:"14px 20px 0"}}>
           {overview&&(
             <p style={{fontSize:13,color:"#5C5248",lineHeight:1.7,margin:"0 0 14px 0"}}>
@@ -964,8 +964,7 @@ function DiscoverPreview({item,library,onClose,onAdd,onOpenDetail}){
             </div>
           )}
         </div>
-
-        {/* Action buttons — always visible at bottom of card */}
+        {/* Action buttons */}
         <div style={{display:"flex",gap:10,padding:"14px 20px 20px"}}>
           <button onClick={()=>{ onAdd({...item,media_type:type,lists:["Watchlist"]}); onClose(); }}
             style={{flex:1,background:CARD,border:`1.5px solid ${BORDER}`,borderRadius:12,padding:"12px",color:TEXT,fontWeight:700,fontSize:13,fontFamily:"inherit",cursor:"pointer"}}>
@@ -977,7 +976,8 @@ function DiscoverPreview({item,library,onClose,onAdd,onOpenDetail}){
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
