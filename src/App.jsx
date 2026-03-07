@@ -238,65 +238,6 @@ function RatingModal({title,onRate,onSkip}){
   );
 }
 
-// ── Search Overlay ─────────────────────────────────────────────────────────────
-function SearchOverlay({onClose,onAdd,library}){
-  const [q,setQ]=useState("");
-  const [res,setRes]=useState([]);
-  const [busy,setBusy]=useState(false);
-  const ref=useRef();
-  useEffect(()=>{ ref.current?.focus(); },[]);
-  useEffect(()=>{
-    if(q.length<2){ setRes([]); return; }
-    const t=setTimeout(async()=>{
-      setBusy(true);
-      try{ setRes(await searchTMDB(q)); }catch{}
-      setBusy(false);
-    },380);
-    return()=>clearTimeout(t);
-  },[q]);
-  const inLib=id=>library.some(l=>l.tmdb_id===id);
-  return(
-    <div style={{position:"fixed",inset:0,zIndex:400,background:BG,display:"flex",flexDirection:"column"}}>
-      <div style={{padding:"16px 16px 12px",display:"flex",gap:10,alignItems:"center",borderBottom:`1px solid ${BORDER}`,flexShrink:0}}>
-        <button onClick={onClose} style={{background:CARD,border:"none",width:36,height:36,borderRadius:"50%",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:TEXT,flexShrink:0}}>‹</button>
-        <input ref={ref} value={q} onChange={e=>setQ(e.target.value)} placeholder="Search movies and shows…"
-          style={{flex:1,background:CARD,border:"none",borderRadius:10,padding:"10px 14px",fontSize:15,fontFamily:"inherit",color:TEXT,outline:"none"}}/>
-        {busy&&<Spin/>}
-      </div>
-      <div style={{flex:1,overflowY:"auto"}}>
-        {res.map(r=>{
-          const already=inLib(r.id);
-          const title=r.title||r.name||"";
-          const year=(r.release_date||r.first_air_date||"").slice(0,4);
-          return(
-            <div key={r.id} onClick={()=>{ if(!already){onAdd(r);onClose();} }}
-              style={{display:"flex",gap:14,padding:"12px 20px",cursor:already?"default":"pointer",borderBottom:`1px solid ${BORDER}`}}
-              onMouseEnter={e=>{ if(!already) e.currentTarget.style.background=CARD; }}
-              onMouseLeave={e=>{ e.currentTarget.style.background="transparent"; }}>
-              <Poster path={r.poster_path} title={title} w={44} radius={8}/>
-              <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"center",gap:3}}>
-                <div style={{fontSize:15,fontWeight:700,color:TEXT,fontFamily:"'Instrument Serif',Georgia,serif"}}>{title}</div>
-                <div style={{fontSize:12,color:TEXT2}}>{r.media_type==="tv"?"Series":"Film"}{year?" · "+year:""}</div>
-              </div>
-              <div style={{alignSelf:"center",fontSize:12,fontWeight:700,background:already?CARD:TEXT,color:already?TEXT3:BG,padding:"5px 12px",borderRadius:20}}>
-                {already?"Added":"+ Add"}
-              </div>
-            </div>
-          );
-        })}
-        {q.length>=2&&!busy&&res.length===0&&<div style={{textAlign:"center",color:TEXT3,fontSize:14,padding:"50px 0"}}>No results for "{q}"</div>}
-        {q.length<2&&(
-          <div style={{textAlign:"center",padding:"60px 20px 0"}}>
-            <div style={{fontSize:40,marginBottom:14}}>🎬</div>
-            <div style={{fontSize:15,fontWeight:700,color:TEXT,marginBottom:6,fontFamily:"'Instrument Serif',Georgia,serif"}}>Search anything</div>
-            <div style={{fontSize:13,color:TEXT3}}>Movies, series, documentaries</div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── Episode Tracker ────────────────────────────────────────────────────────────
 function EpisodeSheet({item,userId,onClose,onProgressSaved}){
   const [seasons,setSeasons]=useState([]);
@@ -935,11 +876,114 @@ function StatsScreen({library,profile}){
   );
 }
 
+// ── Discover Preview Sheet ─────────────────────────────────────────────────────
+function DiscoverPreview({item,library,onClose,onAdd}){
+  const [providers,setProviders]=useState(null);
+  const [meta,setMeta]=useState(null);
+  const type=item.media_type||(item.first_air_date?"tv":"movie");
+  const title=item.title||item.name||"—";
+  const year=(item.release_date||item.first_air_date||"").slice(0,4);
+  const inLib=library.some(l=>l.tmdb_id===item.id);
+  const libItem=library.find(l=>l.tmdb_id===item.id);
+
+  useEffect(()=>{
+    // Fetch full meta for overview + runtime
+    fetchMeta(item.id,type).then(setMeta).catch(()=>{});
+    // Fetch providers
+    const lang=navigator.language||"en-GB";
+    const country=lang.split("-")[1]||"GB";
+    tmdb(`/${type==="tv"?"tv":"movie"}/${item.id}/watch/providers`).then(d=>{
+      const res=d.results||{};
+      setProviders(res[country]||res["GB"]||res["US"]||Object.values(res)[0]||null);
+    }).catch(()=>{});
+  },[item.id]);
+
+  const overview=meta?.overview||item.overview||"";
+
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:250}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{position:"absolute",inset:0,background:"rgba(28,28,26,0.5)"}} onClick={onClose}/>
+      <div style={{position:"absolute",bottom:0,left:0,right:0,maxHeight:"85dvh",background:BG,borderRadius:"20px 20px 0 0",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        {/* Backdrop */}
+        <div style={{position:"relative",height:180,flexShrink:0}}>
+          {item.backdrop_path
+            ?<img src={IMG(item.backdrop_path,"w780")} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+            :<div style={{width:"100%",height:"100%",background:CARD}}/>}
+          <div style={{position:"absolute",inset:0,background:`linear-gradient(to bottom, transparent 30%, ${BG} 100%)`}}/>
+          <div style={{position:"absolute",top:12,left:"50%",transform:"translateX(-50%)",width:40,height:4,background:"rgba(28,28,26,0.15)",borderRadius:2}}/>
+          <button onClick={onClose} style={{position:"absolute",top:14,right:16,background:"rgba(248,246,242,0.9)",border:"none",width:30,height:30,borderRadius:"50%",color:TEXT2,fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+        </div>
+        <div style={{flex:1,overflowY:"auto",padding:"0 20px 40px"}}>
+          {/* Title row */}
+          <div style={{display:"flex",gap:14,alignItems:"flex-end",marginTop:-44,position:"relative",marginBottom:16}}>
+            <Poster path={item.poster_path} title={title} w={68} radius={10}/>
+            <div style={{flex:1,paddingBottom:4}}>
+              <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:20,fontWeight:700,color:TEXT,lineHeight:1.15}}>{title}</div>
+              <div style={{fontSize:12,color:TEXT2,marginTop:3}}>{type==="tv"?"Series":"Film"}{year?" · "+year:""}</div>
+              {item.vote_average>0&&<div style={{fontSize:12,fontWeight:700,background:TEXT,color:BG,padding:"2px 8px",borderRadius:6,display:"inline-block",marginTop:4}}>★ {item.vote_average?.toFixed(1)}</div>}
+            </div>
+          </div>
+          {/* Overview */}
+          {overview&&<p style={{fontSize:14,color:"#5C5248",lineHeight:1.8,marginBottom:16}}>{overview.slice(0,200)}{overview.length>200?"…":""}</p>}
+          {/* Where to watch */}
+          {providers&&(providers.flatrate||providers.free)&&(
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:11,fontWeight:800,letterSpacing:1.5,color:TEXT3,textTransform:"uppercase",marginBottom:8}}>Where to watch</div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {[...(providers.flatrate||[]),(providers.free||[])].flat().filter((p,i,a)=>a.findIndex(x=>x.provider_id===p.provider_id)===i).slice(0,5).map(p=>(
+                  <div key={p.provider_id} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                    <img src={`https://image.tmdb.org/t/p/w92${p.logo_path}`} alt={p.provider_name} style={{width:36,height:36,borderRadius:8}}/>
+                    <span style={{fontSize:10,color:TEXT3,maxWidth:40,textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.provider_name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Action buttons */}
+          {inLib?(
+            <div style={{background:CARD,borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:10}}>
+              <StatusBadge lists={libItem?.lists||[]}/>
+              <span style={{fontSize:13,color:TEXT2}}>Already in your library</span>
+            </div>
+          ):(
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>{ onAdd({...item,media_type:type,lists:["Watchlist"]}); onClose(); }}
+                style={{flex:1,background:CARD,border:`1.5px solid ${BORDER}`,borderRadius:12,padding:"12px",color:TEXT,fontWeight:700,fontSize:13,fontFamily:"inherit",cursor:"pointer"}}>
+                + Watchlist
+              </button>
+              <button onClick={()=>{ onAdd({...item,media_type:type,lists:["Watching"]}); onClose(); }}
+                style={{flex:1,background:TEXT,border:"none",borderRadius:12,padding:"12px",color:BG,fontWeight:700,fontSize:13,fontFamily:"inherit",cursor:"pointer"}}>
+                ▶ Start Watching
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Discover Screen ────────────────────────────────────────────────────────────
-function DiscoverScreen({library,onAdd}){
+const GENRES=[
+  {id:28,label:"Action"},{id:35,label:"Comedy"},{id:18,label:"Drama"},
+  {id:53,label:"Thriller"},{id:27,label:"Horror"},{id:878,label:"Sci-Fi"},
+  {id:10749,label:"Romance"},{id:99,label:"Documentary"},{id:16,label:"Animation"},{id:80,label:"Crime"},
+];
+
+function DiscoverScreen({library,onAdd,focusSearch}){
   const [data,setData]=useState(null);
   const [loading,setLoading]=useState(true);
   const [featuredIdx,setFeaturedIdx]=useState(0);
+  const [q,setQ]=useState("");
+  const [searchRes,setSearchRes]=useState([]);
+  const [searching,setSearching]=useState(false);
+  const [activeGenre,setActiveGenre]=useState(null);
+  const [genreData,setGenreData]=useState(null);
+  const [genreLoading,setGenreLoading]=useState(false);
+  const [preview,setPreview]=useState(null);
+  const [showAllMovies,setShowAllMovies]=useState(false);
+  const [showAllSeries,setShowAllSeries]=useState(false);
+  const searchRef=useRef();
   const libIds=new Set(library.map(i=>i.tmdb_id));
 
   useEffect(()=>{
@@ -948,85 +992,222 @@ function DiscoverScreen({library,onAdd}){
     return()=>clearInterval(t);
   },[]);
 
-  const handleAdd=(item)=>{
+  // Auto-focus search if coming from header button
+  useEffect(()=>{ if(focusSearch) setTimeout(()=>searchRef.current?.focus(),100); },[focusSearch]);
+
+  // Search
+  useEffect(()=>{
+    if(q.length<2){ setSearchRes([]); return; }
+    const t=setTimeout(async()=>{
+      setSearching(true);
+      try{ setSearchRes(await searchTMDB(q)); }catch{}
+      setSearching(false);
+    },380);
+    return()=>clearTimeout(t);
+  },[q]);
+
+  // Genre filter
+  const handleGenre=async(genre)=>{
+    if(activeGenre?.id===genre.id){ setActiveGenre(null); setGenreData(null); return; }
+    setActiveGenre(genre);
+    setGenreLoading(true);
+    try{
+      const [movies,series]=await Promise.all([
+        tmdb(`/discover/movie?with_genres=${genre.id}&sort_by=popularity.desc`),
+        tmdb(`/discover/tv?with_genres=${genre.id}&sort_by=popularity.desc`),
+      ]);
+      setGenreData({movies:(movies.results||[]).slice(0,20),series:(series.results||[]).slice(0,20)});
+    }catch{}
+    setGenreLoading(false);
+  };
+
+  const handleAdd=(item,lists=["Watchlist"])=>{
     const type=item.media_type||(item.first_air_date?"tv":"movie");
-    onAdd({...item,id:item.id,media_type:type});
+    onAdd({...item,id:item.id,media_type:type,lists});
   };
 
   if(loading) return <div style={{display:"flex",justifyContent:"center",padding:"60px 0"}}><Spin/></div>;
 
-  const featured=data.featured.filter(i=>!libIds.has(i.id));
+  const featured=(data.featured||[]).filter(i=>!libIds.has(i.id));
   const featuredItem=featured[featuredIdx%Math.max(featured.length,1)];
-  const movies=data.movies.filter(i=>!libIds.has(i.id));
-  const series=data.series.filter(i=>!libIds.has(i.id));
+  const moviesRaw=activeGenre?genreData?.movies:data.movies;
+  const seriesRaw=activeGenre?genreData?.series:data.series;
+  const movies=(moviesRaw||[]).filter(i=>!libIds.has(i.id));
+  const series=(seriesRaw||[]).filter(i=>!libIds.has(i.id));
+  const isSearching=q.length>=2;
 
   return(
     <div style={{paddingBottom:100}}>
-      {/* Featured hero */}
-      {featuredItem&&(
-        <div style={{position:"relative",height:260,marginBottom:24,overflow:"hidden"}}>
-          {featuredItem.backdrop_path
-            ?<img src={IMG(featuredItem.backdrop_path,"w780")} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
-            :<div style={{width:"100%",height:"100%",background:CARD}}/>}
-          <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom, transparent 20%, rgba(28,28,26,0.85) 100%)"}}/>
-          {/* Dots */}
-          <div style={{position:"absolute",top:12,right:16,display:"flex",gap:5}}>
-            {featured.slice(0,6).map((_,i)=>(
-              <div key={i} onClick={()=>setFeaturedIdx(i)} style={{width:i===featuredIdx%Math.max(featured.length,1)?18:6,height:6,borderRadius:3,background:i===featuredIdx%Math.max(featured.length,1)?"#fff":"rgba(255,255,255,0.4)",cursor:"pointer",transition:"width .3s"}}/>
-            ))}
-          </div>
-          <div style={{position:"absolute",bottom:0,left:0,right:0,padding:"0 20px 18px"}}>
-            <div style={{fontSize:10,fontWeight:800,letterSpacing:2,color:"rgba(255,255,255,0.6)",textTransform:"uppercase",marginBottom:6}}>
-              {featuredItem.first_air_date?"Series":"Film"} · Trending
-            </div>
-            <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:22,color:"#fff",fontWeight:700,marginBottom:12,lineHeight:1.2}}>
-              {featuredItem.title||featuredItem.name}
-            </div>
-            <button onClick={()=>handleAdd(featuredItem)} style={{background:"#fff",border:"none",borderRadius:20,padding:"8px 20px",fontSize:13,fontWeight:800,color:TEXT,cursor:"pointer",fontFamily:"inherit"}}>
-              + Add to library
-            </button>
-          </div>
+      {preview&&<DiscoverPreview item={preview} library={library} onClose={()=>setPreview(null)} onAdd={(item)=>handleAdd(item,item.lists)}/>}
+
+      {/* Search bar */}
+      <div style={{padding:"0 20px 14px",position:"relative",display:"flex",alignItems:"center",gap:10}}>
+        <div style={{flex:1,position:"relative"}}>
+          <input ref={searchRef} value={q} onChange={e=>setQ(e.target.value)} placeholder="Search movies and shows…"
+            style={{width:"100%",background:CARD,border:"none",borderRadius:12,padding:"11px 40px 11px 14px",fontFamily:"inherit",color:TEXT,outline:"none",boxSizing:"border-box"}}/>
+          {searching&&<div style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)"}}><Spin size={16}/></div>}
+          {q.length>0&&!searching&&<button onClick={()=>setQ("")} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:TEXT3,fontSize:18,cursor:"pointer",lineHeight:1}}>×</button>}
+        </div>
+      </div>
+
+      {/* Search results */}
+      {isSearching&&(
+        <div style={{paddingBottom:20}}>
+          {searchRes.length===0&&!searching&&<div style={{textAlign:"center",color:TEXT3,fontSize:14,padding:"30px 0"}}>No results for "{q}"</div>}
+          {searchRes.map(r=>{
+            const inLib=libIds.has(r.id);
+            const title=r.title||r.name||"";
+            const year=(r.release_date||r.first_air_date||"").slice(0,4);
+            return(
+              <div key={r.id} onClick={()=>setPreview(r)}
+                style={{display:"flex",gap:14,padding:"12px 20px",cursor:"pointer",borderBottom:`1px solid ${BORDER}`}}>
+                <Poster path={r.poster_path} title={title} w={44} radius={8}/>
+                <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"center",gap:3}}>
+                  <div style={{fontSize:15,fontWeight:700,color:TEXT,fontFamily:"'Instrument Serif',Georgia,serif"}}>{title}</div>
+                  <div style={{fontSize:12,color:TEXT2}}>{r.media_type==="tv"?"Series":"Film"}{year?" · "+year:""}</div>
+                </div>
+                <div style={{alignSelf:"center",fontSize:12,fontWeight:700,background:inLib?CARD:TEXT,color:inLib?TEXT3:BG,padding:"5px 12px",borderRadius:20}}>
+                  {inLib?"In library":"View"}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {/* Popular Movies */}
-      {movies.length>0&&(
-        <div style={{marginBottom:28}}>
-          <div style={{padding:"0 20px",marginBottom:14}}><SectionLabel>Popular movies</SectionLabel></div>
-          <div style={{display:"flex",gap:10,overflowX:"auto",padding:"0 20px"}}>
-            {movies.map(item=>(
-              <div key={item.id} style={{flexShrink:0,cursor:"pointer"}} onClick={()=>handleAdd({...item,media_type:"movie"})}>
-                <div style={{position:"relative"}}>
-                  <Poster path={item.poster_path} title={item.title} w={100} radius={12}/>
-                  <div style={{position:"absolute",bottom:6,right:6,background:"rgba(28,28,26,0.75)",borderRadius:6,padding:"2px 6px",fontSize:11,fontWeight:700,color:"#fff"}}>
-                    ★ {item.vote_average?.toFixed(1)}
-                  </div>
-                </div>
-                <div style={{fontSize:11,color:TEXT2,marginTop:6,width:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500}}>{item.title}</div>
-              </div>
-            ))}
+      {/* Trending content — hidden while searching */}
+      {!isSearching&&(
+        <>
+          {/* Genre pills */}
+          <div style={{display:"flex",gap:8,padding:"0 20px",marginBottom:20,overflowX:"auto"}}>
+            {GENRES.map(g=>{
+              const active=activeGenre?.id===g.id;
+              return(
+                <button key={g.id} onClick={()=>handleGenre(g)}
+                  style={{flexShrink:0,padding:"6px 14px",borderRadius:20,border:`1.5px solid ${active?SAGE:BORDER}`,background:active?SAGE:"transparent",color:active?"#fff":TEXT2,fontFamily:"inherit",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s"}}>
+                  {g.label}
+                </button>
+              );
+            })}
           </div>
-        </div>
-      )}
 
-      {/* Popular Series */}
-      {series.length>0&&(
-        <div style={{marginBottom:28}}>
-          <div style={{padding:"0 20px",marginBottom:14}}><SectionLabel>Popular series</SectionLabel></div>
-          <div style={{display:"flex",gap:10,overflowX:"auto",padding:"0 20px"}}>
-            {series.map(item=>(
-              <div key={item.id} style={{flexShrink:0,cursor:"pointer"}} onClick={()=>handleAdd({...item,media_type:"tv"})}>
-                <div style={{position:"relative"}}>
-                  <Poster path={item.poster_path} title={item.name} w={100} radius={12}/>
-                  <div style={{position:"absolute",bottom:6,right:6,background:"rgba(28,28,26,0.75)",borderRadius:6,padding:"2px 6px",fontSize:11,fontWeight:700,color:"#fff"}}>
-                    ★ {item.vote_average?.toFixed(1)}
+          {genreLoading&&<div style={{display:"flex",justifyContent:"center",padding:"30px 0"}}><Spin/></div>}
+
+          {!genreLoading&&(
+            <>
+              {/* Featured hero — only when no genre selected */}
+              {!activeGenre&&featuredItem&&(
+                <div onClick={()=>setPreview(featuredItem)} style={{position:"relative",height:280,marginBottom:24,overflow:"hidden",cursor:"pointer"}}>
+                  {featuredItem.backdrop_path
+                    ?<img src={IMG(featuredItem.backdrop_path,"w780")} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+                    :<div style={{width:"100%",height:"100%",background:CARD}}/>}
+                  <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom, transparent 20%, rgba(28,28,26,0.9) 100%)"}}/>
+                  {/* Dots */}
+                  <div style={{position:"absolute",top:12,right:16,display:"flex",gap:5}}>
+                    {featured.slice(0,6).map((_,i)=>(
+                      <div key={i} onClick={e=>{ e.stopPropagation(); setFeaturedIdx(i); }}
+                        style={{width:i===featuredIdx%Math.max(featured.length,1)?18:6,height:6,borderRadius:3,background:i===featuredIdx%Math.max(featured.length,1)?"#fff":"rgba(255,255,255,0.4)",cursor:"pointer",transition:"width .3s"}}/>
+                    ))}
+                  </div>
+                  <div style={{position:"absolute",bottom:0,left:0,right:0,padding:"0 20px 18px"}}>
+                    <div style={{fontSize:10,fontWeight:800,letterSpacing:2,color:"rgba(255,255,255,0.6)",textTransform:"uppercase",marginBottom:4}}>
+                      {featuredItem.first_air_date?"Series":"Film"} · Trending
+                      {featuredItem.vote_average>0&&<span style={{marginLeft:8,background:"rgba(255,255,255,0.15)",padding:"1px 6px",borderRadius:4}}>★ {featuredItem.vote_average?.toFixed(1)}</span>}
+                    </div>
+                    <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:22,color:"#fff",fontWeight:700,marginBottom:6,lineHeight:1.2}}>
+                      {featuredItem.title||featuredItem.name}
+                    </div>
+                    {(featuredItem.overview)&&(
+                      <div style={{fontSize:12,color:"rgba(255,255,255,0.7)",lineHeight:1.5,marginBottom:10,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>
+                        {featuredItem.overview}
+                      </div>
+                    )}
+                    <div style={{display:"flex",gap:8}}>
+                      <button onClick={e=>{ e.stopPropagation(); onAdd({...featuredItem,media_type:featuredItem.first_air_date?"tv":"movie",lists:["Watchlist"]}); }}
+                        style={{background:"#fff",border:"none",borderRadius:20,padding:"7px 18px",fontSize:12,fontWeight:800,color:TEXT,cursor:"pointer",fontFamily:"inherit"}}>
+                        + Watchlist
+                      </button>
+                      <button onClick={e=>{ e.stopPropagation(); setPreview(featuredItem); }}
+                        style={{background:"rgba(255,255,255,0.15)",border:"1.5px solid rgba(255,255,255,0.4)",borderRadius:20,padding:"7px 18px",fontSize:12,fontWeight:700,color:"#fff",cursor:"pointer",fontFamily:"inherit"}}>
+                        More info
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <div style={{fontSize:11,color:TEXT2,marginTop:6,width:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500}}>{item.name}</div>
-              </div>
-            ))}
-          </div>
-        </div>
+              )}
+
+              {/* Movies shelf */}
+              {movies.length>0&&(
+                <div style={{marginBottom:28}}>
+                  <div style={{padding:"0 20px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <SectionLabel>{activeGenre?`${activeGenre.label} movies`:"Popular movies"}</SectionLabel>
+                    {movies.length>6&&<button onClick={()=>setShowAllMovies(p=>!p)} style={{background:"none",border:"none",fontSize:12,fontWeight:700,color:SAGE,cursor:"pointer",fontFamily:"inherit"}}>{showAllMovies?"Less ↑":"See all ↓"}</button>}
+                  </div>
+                  {showAllMovies?(
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,padding:"0 20px"}}>
+                      {movies.map(item=>(
+                        <div key={item.id} onClick={()=>setPreview({...item,media_type:"movie"})} style={{cursor:"pointer"}}>
+                          <div style={{aspectRatio:"2/3",borderRadius:10,overflow:"hidden",background:CARD,position:"relative"}}>
+                            {item.poster_path?<img src={IMG(item.poster_path)} alt={item.title} style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>:<div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>🎬</div>}
+                            <div style={{position:"absolute",bottom:4,right:4,background:"rgba(28,28,26,0.75)",borderRadius:4,padding:"1px 5px",fontSize:10,fontWeight:700,color:"#fff"}}>★ {item.vote_average?.toFixed(1)}</div>
+                          </div>
+                          <div style={{fontSize:11,color:TEXT2,marginTop:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.title}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ):(
+                    <div style={{display:"flex",gap:10,overflowX:"auto",padding:"0 20px"}}>
+                      {movies.slice(0,10).map(item=>(
+                        <div key={item.id} style={{flexShrink:0,cursor:"pointer"}} onClick={()=>setPreview({...item,media_type:"movie"})}>
+                          <div style={{position:"relative"}}>
+                            <Poster path={item.poster_path} title={item.title} w={100} radius={12}/>
+                            <div style={{position:"absolute",bottom:6,right:6,background:"rgba(28,28,26,0.75)",borderRadius:6,padding:"2px 6px",fontSize:11,fontWeight:700,color:"#fff"}}>★ {item.vote_average?.toFixed(1)}</div>
+                          </div>
+                          <div style={{fontSize:11,color:TEXT2,marginTop:6,width:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500}}>{item.title}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Series shelf */}
+              {series.length>0&&(
+                <div style={{marginBottom:28}}>
+                  <div style={{padding:"0 20px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <SectionLabel>{activeGenre?`${activeGenre.label} series`:"Popular series"}</SectionLabel>
+                    {series.length>6&&<button onClick={()=>setShowAllSeries(p=>!p)} style={{background:"none",border:"none",fontSize:12,fontWeight:700,color:SAGE,cursor:"pointer",fontFamily:"inherit"}}>{showAllSeries?"Less ↑":"See all ↓"}</button>}
+                  </div>
+                  {showAllSeries?(
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,padding:"0 20px"}}>
+                      {series.map(item=>(
+                        <div key={item.id} onClick={()=>setPreview({...item,media_type:"tv"})} style={{cursor:"pointer"}}>
+                          <div style={{aspectRatio:"2/3",borderRadius:10,overflow:"hidden",background:CARD,position:"relative"}}>
+                            {item.poster_path?<img src={IMG(item.poster_path)} alt={item.name} style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>:<div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>🎬</div>}
+                            <div style={{position:"absolute",bottom:4,right:4,background:"rgba(28,28,26,0.75)",borderRadius:4,padding:"1px 5px",fontSize:10,fontWeight:700,color:"#fff"}}>★ {item.vote_average?.toFixed(1)}</div>
+                          </div>
+                          <div style={{fontSize:11,color:TEXT2,marginTop:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ):(
+                    <div style={{display:"flex",gap:10,overflowX:"auto",padding:"0 20px"}}>
+                      {series.slice(0,10).map(item=>(
+                        <div key={item.id} style={{flexShrink:0,cursor:"pointer"}} onClick={()=>setPreview({...item,media_type:"tv"})}>
+                          <div style={{position:"relative"}}>
+                            <Poster path={item.poster_path} title={item.name} w={100} radius={12}/>
+                            <div style={{position:"absolute",bottom:6,right:6,background:"rgba(28,28,26,0.75)",borderRadius:6,padding:"2px 6px",fontSize:11,fontWeight:700,color:"#fff"}}>★ {item.vote_average?.toFixed(1)}</div>
+                          </div>
+                          <div style={{fontSize:11,color:TEXT2,marginTop:6,width:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500}}>{item.name}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </>
       )}
     </div>
   );
@@ -1291,12 +1472,13 @@ export default function SeenIt(){
   const [tab,setTab]=useState("home");
   const [detail,setDetail]=useState(null);
   const [episodes,setEpisodes]=useState(null);
-  const [searching,setSearching]=useState(false);
   const [libTab,setLibTab]=useState("all");
   const [statusTab,setStatusTab]=useState("all");
   const [libSearch,setLibSearch]=useState("");
   const [showProfile,setShowProfile]=useState(false);
   const [showWrapped,setShowWrapped]=useState(false);
+  const [focusSearch,setFocusSearch]=useState(false);
+  const [discoverPreview,setDiscoverPreview]=useState(null);
   const [authLoading,setAuthLoading]=useState(true);
   const [upcoming,setUpcoming]=useState([]);
   const [suggested,setSuggested]=useState([]);
@@ -1356,7 +1538,8 @@ export default function SeenIt(){
 
   const addToLibrary=async(result)=>{
     if(!session||library.some(i=>i.tmdb_id===result.id)) return;
-    const {data,error}=await sb.from("library").insert({user_id:session.user.id,tmdb_id:result.id,media_type:result.media_type,lists:["Watchlist"]}).select().single();
+    const lists=result.lists||["Watchlist"];
+    const {data,error}=await sb.from("library").insert({user_id:session.user.id,tmdb_id:result.id,media_type:result.media_type,lists}).select().single();
     if(error||!data) return;
     try{ const meta=await fetchMeta(result.id,result.media_type); setLibrary(p=>[{...data,_meta:meta},...p]); }
     catch{ setLibrary(p=>[{...data,_meta:null},...p]); }
@@ -1431,7 +1614,7 @@ export default function SeenIt(){
           </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",marginTop:2}}>
-          <button onClick={()=>setSearching(true)} style={{width:40,height:40,borderRadius:"50%",background:TEXT,border:"none",color:BG,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <button onClick={()=>{ setTab("discover"); setFocusSearch(f=>!f); }} style={{width:40,height:40,borderRadius:"50%",background:TEXT,border:"none",color:BG,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={BG} strokeWidth="2.5" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           </button>
           <div onClick={()=>setShowProfile(true)} style={{cursor:"pointer"}}><Av name={profile?.display_name||profile?.username||"?"} size={40}/></div>
@@ -1450,7 +1633,7 @@ export default function SeenIt(){
                 <div style={{fontSize:40,marginBottom:14}}>🎬</div>
                 <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:22,color:TEXT,marginBottom:8}}>Start your library</div>
                 <div style={{fontSize:14,color:TEXT2,lineHeight:1.6,marginBottom:20}}>Search for a movie or show to add it</div>
-                <button onClick={()=>setSearching(true)} style={{background:TEXT,border:"none",borderRadius:12,padding:"12px 24px",color:BG,fontWeight:700,fontSize:14,fontFamily:"inherit",cursor:"pointer"}}>+ Add something</button>
+                <button onClick={()=>{ setTab("discover"); setFocusSearch(f=>!f); }} style={{background:TEXT,border:"none",borderRadius:12,padding:"12px 24px",color:BG,fontWeight:700,fontSize:14,fontFamily:"inherit",cursor:"pointer"}}>+ Add something</button>
               </div>
             )}
 
@@ -1534,7 +1717,7 @@ export default function SeenIt(){
                 <div style={{padding:"0 20px",marginBottom:14}}><SectionLabel>You might like</SectionLabel></div>
                 <div style={{display:"flex",gap:10,overflowX:"auto",padding:"0 20px"}}>
                   {suggested.map(item=>(
-                    <div key={item.id} onClick={()=>addToLibrary({...item,media_type:"tv"})} style={{flexShrink:0,cursor:"pointer"}}>
+                    <div key={item.id} onClick={()=>setDiscoverPreview({...item,media_type:"tv"})} style={{flexShrink:0,cursor:"pointer"}}>
                       <Poster path={item.poster_path} title={item.name||item.title} w={80} radius={12}/>
                       <div style={{fontSize:11,color:TEXT2,marginTop:6,width:80,textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500}}>{item.name||item.title}</div>
                     </div>
@@ -1609,7 +1792,7 @@ export default function SeenIt(){
         )}
 
         {tab==="friends"&&session&&<div className="up"><FriendsScreen userId={session.user.id}/></div>}
-        {tab==="discover"&&<div className="up"><DiscoverScreen library={library} onAdd={addToLibrary}/></div>}
+        {tab==="discover"&&<div className="up"><DiscoverScreen library={library} onAdd={addToLibrary} focusSearch={focusSearch}/></div>}
       </div>
 
       {/* ── BOTTOM NAV ── */}
@@ -1625,7 +1808,7 @@ export default function SeenIt(){
       </div>
 
       {/* ── OVERLAYS ── */}
-      {searching&&<SearchOverlay onClose={()=>setSearching(false)} onAdd={addToLibrary} library={library}/>}
+      {discoverPreview&&<DiscoverPreview item={discoverPreview} library={library} onClose={()=>setDiscoverPreview(null)} onAdd={addToLibrary}/>}
       {detail&&!episodes&&<DetailSheet item={detail} onClose={()=>setDetail(null)} onUpdate={updateItem} onDelete={deleteItem} onEpisodes={()=>setEpisodes(detail)} userId={session?.user?.id} profile={profile}/>}
       {episodes&&<EpisodeSheet item={episodes} userId={session?.user?.id} onClose={()=>setEpisodes(null)} onProgressSaved={updated=>{ updateItem(updated); setEpisodes(null); }}/>}
       {showProfile&&<ProfileScreen profile={profile} library={library} onClose={()=>setShowProfile(false)} onSignOut={()=>{ setShowProfile(false); signOut(); }} onProfileUpdate={setProfile}/>}
