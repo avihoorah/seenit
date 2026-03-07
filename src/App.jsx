@@ -1594,7 +1594,11 @@ function ProfileScreen({profile,library,onClose,onSignOut,onProfileUpdate}){
             </div>
           </div>
         </div>
-
+{/* TMDB Attribution */}
+<div style={{display:"flex",alignItems:"center",gap:10,padding:"14px 16px",background:CARD,borderRadius:16,marginBottom:16}}>
+  <img src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_short-8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c.svg" alt="TMDB" style={{height:14,opacity:0.6}}/>
+  <span style={{fontSize:11,color:TEXT3,lineHeight:1.4}}>This app uses the TMDB API but is not endorsed or certified by TMDB.</span>
+</div>
         {/* Sign out */}
         <button onClick={onSignOut} style={{width:"100%",background:"none",border:`1.5px solid ${BORDER}`,borderRadius:12,padding:"13px",color:TEXT2,fontWeight:700,fontSize:14,fontFamily:"inherit",cursor:"pointer"}}>
           Sign out
