@@ -532,11 +532,11 @@ function DetailSheet({item,onClose,onUpdate,onDelete,onEpisodes,userId,profile})
                   {!isMovie&&item._meta.number_of_seasons&&<span style={{fontSize:12,color:TEXT2,padding:"4px 10px",border:`1px solid ${BORDER}`,borderRadius:6}}>{item._meta.number_of_seasons} seasons · {item._meta.number_of_episodes} eps</span>}
                 </div>
               )}
-              <p style={{fontSize:14,color:"#5C5248",lineHeight:1.8,margin:"0 0 16px"}}>{item._meta?.overview||"No description available."}</p>
+              <p style={{fontSize:14,color:TEXT2,lineHeight:1.8,margin:"0 0 16px"}}>{item._meta?.overview||"No description available."}</p>
               {/* Where to watch */}
               {providers&&(providers.flatrate||providers.free||providers.ads)&&(
                 <div style={{marginBottom:20}}>
-                  <div style={{fontSize:11,fontWeight:800,letterSpacing:1.5,color:TEXT3,textTransform:"uppercase",marginBottom:10}}>Where to watch</div>
+                  <div style={{fontSize:10,fontWeight:800,letterSpacing:2,color:TEXT3,textTransform:"uppercase",marginBottom:10}}>Where to watch</div>
                   <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                     {[...(providers.flatrate||[]),(providers.free||[]),(providers.ads||[])].flat().filter((p,i,a)=>a.findIndex(x=>x.provider_id===p.provider_id)===i).slice(0,6).map(p=>(
                       <div key={p.provider_id} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
@@ -590,7 +590,7 @@ function DetailSheet({item,onClose,onUpdate,onDelete,onEpisodes,userId,profile})
                 {notes.map(n=>(
                   <div key={n.id} style={{borderLeft:`2px solid ${SAGE_LIGHT}`,paddingLeft:14,marginBottom:18}}>
                     <div style={{fontSize:11,fontWeight:700,color:TEXT3,marginBottom:4,textTransform:"uppercase",letterSpacing:0.5}}>{n.ref_label} · {new Date(n.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</div>
-                    <p style={{fontSize:14,color:"#5C5248",lineHeight:1.65,margin:0}}>{n.body}</p>
+                    <p style={{fontSize:14,color:TEXT2,lineHeight:1.65,margin:0}}>{n.body}</p>
                   </div>
                 ))}
               </div>
@@ -930,7 +930,7 @@ function DiscoverPreview({item,library,onClose,onAdd,onOpenDetail}){
               :<div style={{aspectRatio:"2/3",background:CARD,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>🎬</div>}
           </div>
           <div style={{flex:1,minWidth:0,paddingTop:2}}>
-            <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:19,fontWeight:700,color:TEXT,lineHeight:1.2}}>{title}</div>
+            <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:21,fontWeight:700,color:TEXT,lineHeight:1.2}}>{title}</div>
             <div style={{fontSize:12,color:TEXT2,marginTop:3}}>{type==="tv"?"Series":"Film"}{year?" · "+year:""}</div>
             {genres&&<div style={{fontSize:11,color:TEXT3,marginTop:2}}>{genres}</div>}
             {item.vote_average>0&&(
@@ -944,13 +944,13 @@ function DiscoverPreview({item,library,onClose,onAdd,onOpenDetail}){
         {/* Scrollable body */}
         <div style={{maxHeight:"45vh",overflowY:"auto",padding:"14px 20px 0"}}>
           {overview&&(
-            <p style={{fontSize:13,color:"#5C5248",lineHeight:1.7,margin:"0 0 14px 0"}}>
+            <p style={{fontSize:14,color:TEXT2,lineHeight:1.8,margin:"0 0 14px 0"}}>
               {overview.slice(0,240)}{overview.length>240?"…":""}
             </p>
           )}
           {providers&&(providers.flatrate||providers.free)&&(
             <div style={{marginBottom:14}}>
-              <div style={{fontSize:10,fontWeight:800,letterSpacing:1.5,color:TEXT3,textTransform:"uppercase",marginBottom:8}}>Where to watch</div>
+              <div style={{fontSize:10,fontWeight:800,letterSpacing:2,color:TEXT3,textTransform:"uppercase",marginBottom:8}}>Where to watch</div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                 {[...(providers.flatrate||[]),(providers.free||[])].flat()
                   .filter((p,i,a)=>a.findIndex(x=>x.provider_id===p.provider_id)===i)
@@ -964,15 +964,11 @@ function DiscoverPreview({item,library,onClose,onAdd,onOpenDetail}){
             </div>
           )}
         </div>
-        {/* Action buttons */}
-        <div style={{display:"flex",gap:10,padding:"14px 20px 20px"}}>
+        {/* Action button */}
+        <div style={{padding:"14px 20px 20px"}}>
           <button onClick={()=>{ onAdd({...item,media_type:type,lists:["Watchlist"]}); onClose(); }}
-            style={{flex:1,background:CARD,border:`1.5px solid ${BORDER}`,borderRadius:12,padding:"12px",color:TEXT,fontWeight:700,fontSize:13,fontFamily:"inherit",cursor:"pointer"}}>
-            + Watchlist
-          </button>
-          <button onClick={()=>{ onAdd({...item,media_type:type,lists:["Watching"]}); onClose(); }}
-            style={{flex:1,background:TEXT,border:"none",borderRadius:12,padding:"12px",color:BG,fontWeight:700,fontSize:13,fontFamily:"inherit",cursor:"pointer"}}>
-            ▶ Start Watching
+            style={{width:"100%",background:TEXT,border:"none",borderRadius:12,padding:"13px",color:BG,fontWeight:700,fontSize:14,fontFamily:"inherit",cursor:"pointer"}}>
+            + Add to Watchlist
           </button>
         </div>
       </div>
