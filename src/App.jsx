@@ -985,14 +985,88 @@ const GENRES=[
   {id:10749,label:"Romance"},{id:99,label:"Documentary"},{id:16,label:"Animation"},{id:80,label:"Crime"},
 ];
 
+function TrendingCarousel({items,onPreview,onAdd}){
+  const [idx,setIdx]=useState(0);
+  const trackRef=useRef();
+  const startX=useRef(null);
+  const dragging=useRef(false);
+  const total=Math.min(items.length,8);
+  const item=items[idx];
+
+  const goTo=(n)=>setIdx(Math.max(0,Math.min(total-1,n)));
+
+  const onTouchStart=(e)=>{ startX.current=e.touches[0].clientX; dragging.current=true; };
+  const onTouchEnd=(e)=>{
+    if(!dragging.current||startX.current===null) return;
+    const dx=e.changedTouches[0].clientX-startX.current;
+    if(Math.abs(dx)>40){ dx<0?goTo(idx+1):goTo(idx-1); }
+    dragging.current=false; startX.current=null;
+  };
+  const onMouseDown=(e)=>{ startX.current=e.clientX; dragging.current=true; };
+  const onMouseUp=(e)=>{
+    if(!dragging.current||startX.current===null) return;
+    const dx=e.clientX-startX.current;
+    if(Math.abs(dx)>40){ dx<0?goTo(idx+1):goTo(idx-1); }
+    dragging.current=false; startX.current=null;
+  };
+
+  if(!item) return null;
+  const title=item.title||item.name||"";
+  const type=item.first_air_date?"Series":"Film";
+
+  return(
+    <div style={{marginBottom:24,userSelect:"none"}}
+      onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
+      onMouseDown={onMouseDown} onMouseUp={onMouseUp}>
+      {/* Card */}
+      <div ref={trackRef} style={{position:"relative",height:270,overflow:"hidden",cursor:"pointer"}}
+        onClick={()=>{ if(!dragging.current||(startX.current!==null&&Math.abs(startX.current-startX.current)<5)) onPreview(item); }}>
+        {item.backdrop_path
+          ?<img src={IMG(item.backdrop_path,"w780")} alt={title} style={{width:"100%",height:"100%",objectFit:"cover",display:"block",transition:"opacity .3s"}} key={item.id}/>
+          :<div style={{width:"100%",height:"100%",background:CARD}}/>}
+        <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom, transparent 15%, rgba(28,28,26,0.92) 100%)"}}/>
+        {/* Content */}
+        <div style={{position:"absolute",bottom:0,left:0,right:0,padding:"0 20px 16px"}}>
+          <div style={{fontSize:10,fontWeight:800,letterSpacing:2,color:"rgba(255,255,255,0.6)",textTransform:"uppercase",marginBottom:4}}>
+            {type} · Trending
+            {item.vote_average>0&&<span style={{marginLeft:8,background:"rgba(255,255,255,0.12)",padding:"1px 7px",borderRadius:4}}>★ {item.vote_average?.toFixed(1)}</span>}
+          </div>
+          <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:24,color:"#fff",fontWeight:700,lineHeight:1.15,marginBottom:6}}>
+            {title}
+          </div>
+          {item.overview&&(
+            <div style={{fontSize:12,color:"rgba(255,255,255,0.65)",lineHeight:1.5,marginBottom:12,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>
+              {item.overview}
+            </div>
+          )}
+          <button
+            onClick={e=>{ e.stopPropagation(); onAdd({...item,media_type:item.first_air_date?"tv":"movie",lists:["Watchlist"]}); }}
+            style={{background:"#fff",border:"none",borderRadius:20,padding:"7px 20px",fontSize:12,fontWeight:800,color:TEXT,cursor:"pointer",fontFamily:"inherit"}}>
+            + Watchlist
+          </button>
+        </div>
+        {/* Prev/next tap zones — invisible but large */}
+        <div style={{position:"absolute",top:0,left:0,width:"30%",height:"100%"}} onClick={e=>{ e.stopPropagation(); goTo(idx-1); }}/>
+        <div style={{position:"absolute",top:0,right:0,width:"30%",height:"100%"}} onClick={e=>{ e.stopPropagation(); goTo(idx+1); }}/>
+      </div>
+      {/* Dot indicators */}
+      <div style={{display:"flex",justifyContent:"center",gap:5,marginTop:10}}>
+        {Array.from({length:total}).map((_,i)=>(
+          <div key={i} onClick={()=>goTo(i)}
+            style={{width:i===idx?18:6,height:6,borderRadius:3,background:i===idx?SAGE:BORDER,cursor:"pointer",transition:"width .25s, background .25s"}}/>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail,suggested=[]}){
   const [data,setData]=useState(null);
   const [loading,setLoading]=useState(true);
-  const [featuredIdx,setFeaturedIdx]=useState(0);
   const [q,setQ]=useState("");
   const [searchRes,setSearchRes]=useState([]);
   const [searching,setSearching]=useState(false);
-  const [activeGenre,setActiveGenre]=useState(GENRES[0]); // Popular selected by default
+  const [activeGenre,setActiveGenre]=useState(GENRES[0]);
   const [genreData,setGenreData]=useState(null);
   const [genreLoading,setGenreLoading]=useState(false);
   const [preview,setPreview]=useState(null);
@@ -1001,8 +1075,6 @@ function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail,suggested=[]}){
 
   useEffect(()=>{
     fetchTrending().then(d=>{ setData(d); setLoading(false); });
-    const t=setInterval(()=>setFeaturedIdx(i=>(i+1)%6),5000);
-    return()=>clearInterval(t);
   },[]);
 
   // Auto-focus search if coming from header button
@@ -1043,7 +1115,6 @@ function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail,suggested=[]}){
   if(loading) return <div style={{display:"flex",justifyContent:"center",padding:"60px 0"}}><Spin/></div>;
 
   const featured=(data.featured||[]).filter(i=>!libIds.has(i.id));
-  const featuredItem=featured[featuredIdx%Math.max(featured.length,1)];
   const isPopular=activeGenre?.id===null;
   const moviesRaw=isPopular?data.movies:genreData?.movies;
   const seriesRaw=isPopular?data.series:genreData?.series;
@@ -1110,44 +1181,9 @@ function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail,suggested=[]}){
 
           {!genreLoading&&(
             <>
-              {/* Featured hero — only on Popular */}
-              {activeGenre?.id===null&&featuredItem&&(
-                <div onClick={()=>setPreview(featuredItem)} style={{position:"relative",height:280,marginBottom:24,overflow:"hidden",cursor:"pointer"}}>
-                  {featuredItem.backdrop_path
-                    ?<img src={IMG(featuredItem.backdrop_path,"w780")} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
-                    :<div style={{width:"100%",height:"100%",background:CARD}}/>}
-                  <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom, transparent 20%, rgba(28,28,26,0.9) 100%)"}}/>
-                  <div style={{position:"absolute",top:12,right:16,display:"flex",gap:5}}>
-                    {featured.slice(0,6).map((_,i)=>(
-                      <div key={i} onClick={e=>{ e.stopPropagation(); setFeaturedIdx(i); }}
-                        style={{width:i===featuredIdx%Math.max(featured.length,1)?18:6,height:6,borderRadius:3,background:i===featuredIdx%Math.max(featured.length,1)?"#fff":"rgba(255,255,255,0.4)",cursor:"pointer",transition:"width .3s"}}/>
-                    ))}
-                  </div>
-                  <div style={{position:"absolute",bottom:0,left:0,right:0,padding:"0 20px 18px"}}>
-                    <div style={{fontSize:10,fontWeight:800,letterSpacing:2,color:"rgba(255,255,255,0.6)",textTransform:"uppercase",marginBottom:4}}>
-                      {featuredItem.first_air_date?"Series":"Film"} · Trending
-                      {featuredItem.vote_average>0&&<span style={{marginLeft:8,background:"rgba(255,255,255,0.15)",padding:"1px 6px",borderRadius:4}}>★ {featuredItem.vote_average?.toFixed(1)}</span>}
-                    </div>
-                    <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:22,color:"#fff",fontWeight:700,marginBottom:6,lineHeight:1.2}}>
-                      {featuredItem.title||featuredItem.name}
-                    </div>
-                    {featuredItem.overview&&(
-                      <div style={{fontSize:12,color:"rgba(255,255,255,0.7)",lineHeight:1.5,marginBottom:10,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>
-                        {featuredItem.overview}
-                      </div>
-                    )}
-                    <div style={{display:"flex",gap:8}}>
-                      <button onClick={e=>{ e.stopPropagation(); onAdd({...featuredItem,media_type:featuredItem.first_air_date?"tv":"movie",lists:["Watchlist"]}); }}
-                        style={{background:"#fff",border:"none",borderRadius:20,padding:"7px 18px",fontSize:12,fontWeight:800,color:TEXT,cursor:"pointer",fontFamily:"inherit"}}>
-                        + Watchlist
-                      </button>
-                      <button onClick={e=>{ e.stopPropagation(); setPreview(featuredItem); }}
-                        style={{background:"rgba(255,255,255,0.15)",border:"1.5px solid rgba(255,255,255,0.4)",borderRadius:20,padding:"7px 18px",fontSize:12,fontWeight:700,color:"#fff",cursor:"pointer",fontFamily:"inherit"}}>
-                        More info
-                      </button>
-                    </div>
-                  </div>
-                </div>
+              {/* Trending carousel — only on Popular */}
+              {isPopular&&featured.length>0&&(
+                <TrendingCarousel items={featured} onPreview={setPreview} onAdd={handleAdd}/>
               )}
 
               {/* Movies shelf */}
