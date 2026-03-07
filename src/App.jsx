@@ -67,7 +67,7 @@ async function fetchTrending(){
     return{
       movies:(movies.results||[]).slice(0,10),
       series:(series.results||[]).slice(0,10),
-      featured:[...(movies.results||[]).slice(0,3),...(series.results||[]).slice(0,3)],
+      featured:[...(movies.results||[]).slice(0,8),...(series.results||[]).slice(0,8)],
     };
   }catch{ return{movies:[],series:[],featured:[]}; }
 }
