@@ -877,7 +877,7 @@ function StatsScreen({library,profile}){
 }
 
 // ── Discover Preview Sheet ─────────────────────────────────────────────────────
-function DiscoverPreview({item,library,onClose,onAdd}){
+function DiscoverPreview({item,library,onClose,onAdd,onOpenDetail}){
   const [providers,setProviders]=useState(null);
   const [meta,setMeta]=useState(null);
   const type=item.media_type||(item.first_air_date?"tv":"movie");
@@ -896,62 +896,76 @@ function DiscoverPreview({item,library,onClose,onAdd}){
     }).catch(()=>{});
   },[item.id]);
 
+  // If already in library, hand off to DetailSheet immediately
+  if(inLib&&libItem&&onOpenDetail){
+    onClose();
+    onOpenDetail(libItem);
+    return null;
+  }
+
   const overview=meta?.overview||item.overview||"";
+  const genres=(meta?.genres||[]).slice(0,3).map(g=>g.name).join(" · ");
 
   return(
-    <div style={{position:"fixed",inset:0,zIndex:500,background:BG,display:"flex",flexDirection:"column",maxWidth:430,margin:"0 auto"}}>
-      {/* Backdrop hero */}
-      <div style={{position:"relative",height:260,flexShrink:0}}>
-        {item.backdrop_path
-          ?<img src={IMG(item.backdrop_path,"w780")} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
-          :<div style={{width:"100%",height:"100%",background:CARD}}/>}
-        <div style={{position:"absolute",inset:0,background:`linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, transparent 40%, ${BG} 100%)`}}/>
-        <button onClick={onClose} style={{position:"absolute",top:52,left:16,background:"rgba(28,28,26,0.5)",backdropFilter:"blur(8px)",border:"none",width:36,height:36,borderRadius:"50%",color:"#fff",fontSize:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>‹</button>
-      </div>
-
-      {/* Content */}
-      <div style={{flex:1,overflowY:"auto",padding:"0 20px 40px"}}>
-        {/* Title row — sits at natural flow, no negative margin */}
-        <div style={{display:"flex",gap:14,alignItems:"flex-start",marginTop:-60,position:"relative",marginBottom:18}}>
-          <div style={{flexShrink:0,width:80,borderRadius:12,overflow:"hidden",boxShadow:"0 4px 16px rgba(0,0,0,0.2)"}}>
+    <div style={{position:"fixed",inset:0,zIndex:450}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      {/* Scrim */}
+      <div style={{position:"absolute",inset:0,background:"rgba(28,28,26,0.45)"}} onClick={onClose}/>
+      {/* Sheet */}
+      <div style={{position:"absolute",bottom:0,left:0,right:0,maxWidth:430,margin:"0 auto",background:BG,borderRadius:"22px 22px 0 0",maxHeight:"80dvh",display:"flex",flexDirection:"column"}}>
+        {/* Drag handle */}
+        <div style={{display:"flex",justifyContent:"center",padding:"12px 0 0"}}>
+          <div style={{width:36,height:4,borderRadius:2,background:BORDER}}/>
+        </div>
+        {/* Header row — poster + title block */}
+        <div style={{display:"flex",gap:14,padding:"16px 20px 0",alignItems:"flex-start"}}>
+          {/* Poster — fixed size, no overflow issues */}
+          <div style={{flexShrink:0,width:72,borderRadius:10,overflow:"hidden",boxShadow:"0 4px 12px rgba(0,0,0,0.15)"}}>
             {item.poster_path
               ?<img src={IMG(item.poster_path)} alt={title} style={{width:"100%",display:"block"}}/>
-              :<div style={{aspectRatio:"2/3",background:CARD,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>🎬</div>}
+              :<div style={{aspectRatio:"2/3",background:CARD,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>🎬</div>}
           </div>
-          <div style={{flex:1,paddingTop:70}}>
-            <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:22,fontWeight:700,color:TEXT,lineHeight:1.2}}>{title}</div>
+          {/* Title block */}
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:20,fontWeight:700,color:TEXT,lineHeight:1.2,wordBreak:"break-word"}}>{title}</div>
             <div style={{fontSize:12,color:TEXT2,marginTop:4}}>{type==="tv"?"Series":"Film"}{year?" · "+year:""}</div>
-            {item.vote_average>0&&<div style={{fontSize:12,fontWeight:700,background:TEXT,color:BG,padding:"3px 8px",borderRadius:6,display:"inline-block",marginTop:6}}>★ {item.vote_average?.toFixed(1)}</div>}
+            {genres&&<div style={{fontSize:11,color:TEXT3,marginTop:3}}>{genres}</div>}
+            {item.vote_average>0&&(
+              <div style={{display:"inline-flex",alignItems:"center",gap:5,background:TEXT,color:BG,padding:"3px 8px",borderRadius:6,marginTop:6}}>
+                <span style={{fontSize:12,fontWeight:700}}>★ {item.vote_average?.toFixed(1)}</span>
+              </div>
+            )}
           </div>
+          {/* Close button */}
+          <button onClick={onClose} style={{flexShrink:0,background:CARD,border:"none",width:30,height:30,borderRadius:"50%",color:TEXT2,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
         </div>
 
-        {/* Overview */}
-        {overview&&<p style={{fontSize:14,color:"#5C5248",lineHeight:1.8,marginBottom:20}}>{overview}</p>}
+        {/* Scrollable body */}
+        <div style={{flex:1,overflowY:"auto",padding:"16px 20px 40px"}}>
+          {/* Overview */}
+          {overview&&(
+            <p style={{fontSize:14,color:"#5C5248",lineHeight:1.75,marginBottom:18,margin:"0 0 18px 0"}}>
+              {overview.slice(0,280)}{overview.length>280?"…":""}
+            </p>
+          )}
 
-        {/* Where to watch */}
-        {providers&&(providers.flatrate||providers.free)&&(
-          <div style={{marginBottom:20}}>
-            <div style={{fontSize:11,fontWeight:800,letterSpacing:1.5,color:TEXT3,textTransform:"uppercase",marginBottom:10}}>Where to watch</div>
-            <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-              {[...(providers.flatrate||[]),(providers.free||[])].flat()
-                .filter((p,i,a)=>a.findIndex(x=>x.provider_id===p.provider_id)===i)
-                .slice(0,6).map(p=>(
-                <div key={p.provider_id} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-                  <img src={`https://image.tmdb.org/t/p/w92${p.logo_path}`} alt={p.provider_name} style={{width:40,height:40,borderRadius:10}}/>
-                  <span style={{fontSize:10,color:TEXT3,maxWidth:44,textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.provider_name}</span>
-                </div>
-              ))}
+          {/* Where to watch */}
+          {providers&&(providers.flatrate||providers.free)&&(
+            <div style={{marginBottom:20}}>
+              <div style={{fontSize:11,fontWeight:800,letterSpacing:1.5,color:TEXT3,textTransform:"uppercase",marginBottom:10}}>Where to watch</div>
+              <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                {[...(providers.flatrate||[]),(providers.free||[])].flat()
+                  .filter((p,i,a)=>a.findIndex(x=>x.provider_id===p.provider_id)===i)
+                  .slice(0,6).map(p=>(
+                  <div key={p.provider_id} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                    <img src={`https://image.tmdb.org/t/p/w92${p.logo_path}`} alt={p.provider_name} style={{width:40,height:40,borderRadius:10}}/>
+                    <span style={{fontSize:10,color:TEXT3,maxWidth:44,textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.provider_name}</span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Action buttons */}
-        {inLib?(
-          <div style={{background:CARD,borderRadius:14,padding:"14px 16px",display:"flex",alignItems:"center",gap:12}}>
-            <StatusBadge lists={libItem?.lists||[]}/>
-            <span style={{fontSize:13,color:TEXT2}}>Already in your library</span>
-          </div>
-        ):(
+          {/* Action buttons */}
           <div style={{display:"flex",gap:10}}>
             <button onClick={()=>{ onAdd({...item,media_type:type,lists:["Watchlist"]}); onClose(); }}
               style={{flex:1,background:CARD,border:`1.5px solid ${BORDER}`,borderRadius:14,padding:"14px",color:TEXT,fontWeight:700,fontSize:14,fontFamily:"inherit",cursor:"pointer"}}>
@@ -962,7 +976,7 @@ function DiscoverPreview({item,library,onClose,onAdd}){
               ▶ Start Watching
             </button>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -976,7 +990,7 @@ const GENRES=[
   {id:10749,label:"Romance"},{id:99,label:"Documentary"},{id:16,label:"Animation"},{id:80,label:"Crime"},
 ];
 
-function DiscoverScreen({library,onAdd,focusSearch}){
+function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail}){
   const [data,setData]=useState(null);
   const [loading,setLoading]=useState(true);
   const [featuredIdx,setFeaturedIdx]=useState(0);
@@ -1044,7 +1058,7 @@ function DiscoverScreen({library,onAdd,focusSearch}){
 
   return(
     <div style={{paddingBottom:100}}>
-      {preview&&<DiscoverPreview item={preview} library={library} onClose={()=>setPreview(null)} onAdd={(item)=>handleAdd(item,item.lists)}/>}
+      {preview&&<DiscoverPreview item={preview} library={library} onClose={()=>setPreview(null)} onAdd={(item)=>handleAdd(item,item.lists)} onOpenDetail={(item)=>{ setPreview(null); onOpenDetail&&onOpenDetail(item); }}/>}
 
       {/* Search bar */}
       <div style={{padding:"0 20px 14px",position:"relative",display:"flex",alignItems:"center",gap:10}}>
@@ -1767,7 +1781,7 @@ export default function SeenIt(){
         )}
 
         {tab==="friends"&&session&&<div className="up"><FriendsScreen userId={session.user.id}/></div>}
-        {tab==="discover"&&<div className="up"><DiscoverScreen library={library} onAdd={addToLibrary} focusSearch={focusSearch}/></div>}
+        {tab==="discover"&&<div className="up"><DiscoverScreen library={library} onAdd={addToLibrary} focusSearch={focusSearch} onOpenDetail={setDetail}/></div>}
       </div>
 
       {/* ── BOTTOM NAV ── */}
@@ -1783,7 +1797,7 @@ export default function SeenIt(){
       </div>
 
       {/* ── OVERLAYS ── */}
-      {discoverPreview&&<DiscoverPreview item={discoverPreview} library={library} onClose={()=>setDiscoverPreview(null)} onAdd={addToLibrary}/>}
+      {discoverPreview&&<DiscoverPreview item={discoverPreview} library={library} onClose={()=>setDiscoverPreview(null)} onAdd={addToLibrary} onOpenDetail={(item)=>{ setDiscoverPreview(null); setDetail(item); }}/>}
       {detail&&!episodes&&<DetailSheet item={detail} onClose={()=>setDetail(null)} onUpdate={updateItem} onDelete={deleteItem} onEpisodes={()=>setEpisodes(detail)} userId={session?.user?.id} profile={profile}/>}
       {episodes&&<EpisodeSheet item={episodes} userId={session?.user?.id} onClose={()=>setEpisodes(null)} onProgressSaved={updated=>{ updateItem(updated); setEpisodes(null); }}/>}
       {showProfile&&<ProfileScreen profile={profile} library={library} onClose={()=>setShowProfile(false)} onSignOut={()=>{ setShowProfile(false); signOut(); }} onProfileUpdate={setProfile}/>}
