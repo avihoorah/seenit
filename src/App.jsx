@@ -57,6 +57,19 @@ async function fetchRecommended(genres){
     return (d.results||[]).slice(0,8);
   }catch{ return []; }
 }
+async function fetchTrending(){
+  try{
+    const [movies,series]=await Promise.all([
+      tmdb("/trending/movie/week"),
+      tmdb("/trending/tv/week"),
+    ]);
+    return{
+      movies:(movies.results||[]).slice(0,10),
+      series:(series.results||[]).slice(0,10),
+      featured:[...(movies.results||[]).slice(0,3),...(series.results||[]).slice(0,3)],
+    };
+  }catch{ return{movies:[],series:[],featured:[]}; }
+}
 
 // ── Primitives ─────────────────────────────────────────────────────────────────
 function Spin({size=20}){
@@ -922,6 +935,103 @@ function StatsScreen({library,profile}){
   );
 }
 
+// ── Discover Screen ────────────────────────────────────────────────────────────
+function DiscoverScreen({library,onAdd}){
+  const [data,setData]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [featuredIdx,setFeaturedIdx]=useState(0);
+  const libIds=new Set(library.map(i=>i.tmdb_id));
+
+  useEffect(()=>{
+    fetchTrending().then(d=>{ setData(d); setLoading(false); });
+    const t=setInterval(()=>setFeaturedIdx(i=>(i+1)%6),5000);
+    return()=>clearInterval(t);
+  },[]);
+
+  const handleAdd=(item)=>{
+    const type=item.media_type||(item.first_air_date?"tv":"movie");
+    onAdd({...item,id:item.id,media_type:type});
+  };
+
+  if(loading) return <div style={{display:"flex",justifyContent:"center",padding:"60px 0"}}><Spin/></div>;
+
+  const featured=data.featured.filter(i=>!libIds.has(i.id));
+  const featuredItem=featured[featuredIdx%Math.max(featured.length,1)];
+  const movies=data.movies.filter(i=>!libIds.has(i.id));
+  const series=data.series.filter(i=>!libIds.has(i.id));
+
+  return(
+    <div style={{paddingBottom:100}}>
+      {/* Featured hero */}
+      {featuredItem&&(
+        <div style={{position:"relative",height:260,marginBottom:24,overflow:"hidden"}}>
+          {featuredItem.backdrop_path
+            ?<img src={IMG(featuredItem.backdrop_path,"w780")} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+            :<div style={{width:"100%",height:"100%",background:CARD}}/>}
+          <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom, transparent 20%, rgba(28,28,26,0.85) 100%)"}}/>
+          {/* Dots */}
+          <div style={{position:"absolute",top:12,right:16,display:"flex",gap:5}}>
+            {featured.slice(0,6).map((_,i)=>(
+              <div key={i} onClick={()=>setFeaturedIdx(i)} style={{width:i===featuredIdx%Math.max(featured.length,1)?18:6,height:6,borderRadius:3,background:i===featuredIdx%Math.max(featured.length,1)?"#fff":"rgba(255,255,255,0.4)",cursor:"pointer",transition:"width .3s"}}/>
+            ))}
+          </div>
+          <div style={{position:"absolute",bottom:0,left:0,right:0,padding:"0 20px 18px"}}>
+            <div style={{fontSize:10,fontWeight:800,letterSpacing:2,color:"rgba(255,255,255,0.6)",textTransform:"uppercase",marginBottom:6}}>
+              {featuredItem.first_air_date?"Series":"Film"} · Trending
+            </div>
+            <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:22,color:"#fff",fontWeight:700,marginBottom:12,lineHeight:1.2}}>
+              {featuredItem.title||featuredItem.name}
+            </div>
+            <button onClick={()=>handleAdd(featuredItem)} style={{background:"#fff",border:"none",borderRadius:20,padding:"8px 20px",fontSize:13,fontWeight:800,color:TEXT,cursor:"pointer",fontFamily:"inherit"}}>
+              + Add to library
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Popular Movies */}
+      {movies.length>0&&(
+        <div style={{marginBottom:28}}>
+          <div style={{padding:"0 20px",marginBottom:14}}><SectionLabel>Popular movies</SectionLabel></div>
+          <div style={{display:"flex",gap:10,overflowX:"auto",padding:"0 20px"}}>
+            {movies.map(item=>(
+              <div key={item.id} style={{flexShrink:0,cursor:"pointer"}} onClick={()=>handleAdd({...item,media_type:"movie"})}>
+                <div style={{position:"relative"}}>
+                  <Poster path={item.poster_path} title={item.title} w={100} radius={12}/>
+                  <div style={{position:"absolute",bottom:6,right:6,background:"rgba(28,28,26,0.75)",borderRadius:6,padding:"2px 6px",fontSize:11,fontWeight:700,color:"#fff"}}>
+                    ★ {item.vote_average?.toFixed(1)}
+                  </div>
+                </div>
+                <div style={{fontSize:11,color:TEXT2,marginTop:6,width:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500}}>{item.title}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Popular Series */}
+      {series.length>0&&(
+        <div style={{marginBottom:28}}>
+          <div style={{padding:"0 20px",marginBottom:14}}><SectionLabel>Popular series</SectionLabel></div>
+          <div style={{display:"flex",gap:10,overflowX:"auto",padding:"0 20px"}}>
+            {series.map(item=>(
+              <div key={item.id} style={{flexShrink:0,cursor:"pointer"}} onClick={()=>handleAdd({...item,media_type:"tv"})}>
+                <div style={{position:"relative"}}>
+                  <Poster path={item.poster_path} title={item.name} w={100} radius={12}/>
+                  <div style={{position:"absolute",bottom:6,right:6,background:"rgba(28,28,26,0.75)",borderRadius:6,padding:"2px 6px",fontSize:11,fontWeight:700,color:"#fff"}}>
+                    ★ {item.vote_average?.toFixed(1)}
+                  </div>
+                </div>
+                <div style={{fontSize:11,color:TEXT2,marginTop:6,width:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500}}>{item.name}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Profile Screen ─────────────────────────────────────────────────────────────
 const COUNTRIES=[
   {code:"GB",label:"🇬🇧 United Kingdom"},{code:"US",label:"🇺🇸 United States"},
@@ -999,14 +1109,59 @@ function ProfileScreen({profile,library,onClose,onSignOut,onProfileUpdate}){
           </div>
         </div>
 
-        {/* Stats summary */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:28}}>
-          {[{label:"Finished",value:library.filter(i=>(i.lists||[]).includes("Finished")).length},{label:"Watching",value:library.filter(i=>(i.lists||[]).includes("Watching")).length},{label:"Total",value:library.length}].map((s,i)=>(
-            <div key={i} style={{background:CARD,borderRadius:14,padding:"14px 12px",textAlign:"center"}}>
-              <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:28,fontWeight:700,color:TEXT}}>{s.value}</div>
-              <div style={{fontSize:11,color:TEXT2,marginTop:4}}>{s.label}</div>
-            </div>
-          ))}
+        {/* Stats */}
+        <div style={{marginBottom:28}}>
+          <SectionLabel>Your stats</SectionLabel>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+            {[
+              {label:"Finished",value:library.filter(i=>(i.lists||[]).includes("Finished")).length},
+              {label:"Watching",value:library.filter(i=>(i.lists||[]).includes("Watching")).length},
+              {label:"Movies",value:library.filter(i=>i.media_type==="movie").length},
+              {label:"Series",value:library.filter(i=>i.media_type==="tv").length},
+            ].map((s,i)=>(
+              <div key={i} style={{background:i===0?TEXT:CARD,borderRadius:14,padding:"16px 14px"}}>
+                <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:36,fontWeight:700,color:i===0?BG:TEXT,lineHeight:1}}>{s.value}</div>
+                <div style={{fontSize:11,color:i===0?TEXT3:TEXT2,marginTop:6}}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+          {(()=>{
+            const watchMins=library.reduce((acc,i)=>{
+              if(i.media_type==="movie"&&(i.lists||[]).includes("Finished")) return acc+(i._meta?.runtime||100);
+              if(i.media_type==="tv") return acc+(i.progress_episode||0)*45;
+              return acc;
+            },0);
+            const watchHours=Math.round(watchMins/60);
+            return watchHours>0?(
+              <div style={{background:SAGE_LIGHT,borderRadius:14,padding:"14px 16px",display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
+                <div style={{fontSize:28}}>🎬</div>
+                <div>
+                  <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:18,color:TEXT,fontWeight:700}}>{watchHours} hours watched</div>
+                  <div style={{fontSize:11,color:TEXT2,marginTop:2}}>That's {Math.round(watchHours/24)} days. Worth it.</div>
+                </div>
+              </div>
+            ):null;
+          })()}
+          <TopRatedSection items={library.filter(i=>i.media_type==="tv")} label="Top rated series"/>
+          <TopRatedSection items={library.filter(i=>i.media_type==="movie")} label="Top rated films"/>
+          {(()=>{
+            const genres={};
+            library.forEach(i=>(i._meta?.genres||[]).forEach(g=>{genres[g.name]=(genres[g.name]||0)+1;}));
+            const topGenres=Object.entries(genres).sort((a,b)=>b[1]-a[1]).slice(0,5);
+            return topGenres.length>0?(
+              <div>
+                <SectionLabel>Top genres</SectionLabel>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {topGenres.map(([name,count])=>(
+                    <div key={name} style={{background:CARD,borderRadius:20,padding:"8px 16px",display:"flex",gap:8,alignItems:"center"}}>
+                      <span style={{fontSize:13,fontWeight:700,color:TEXT}}>{name}</span>
+                      <span style={{fontSize:11,color:TEXT2}}>{count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ):null;
+          })()}
         </div>
 
         {/* Pinned favourites */}
@@ -1238,9 +1393,9 @@ export default function SeenIt(){
         <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>
       </svg>
     )},
-    {id:"stats",label:"Stats",icon:(active)=>(
+    {id:"discover",label:"Discover",icon:(active)=>(
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={active?SAGE:"#C0B8AE"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-        <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+        <circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>
       </svg>
     )},
   ];
@@ -1272,7 +1427,7 @@ export default function SeenIt(){
         <div>
           <div style={{fontSize:13,fontWeight:800,letterSpacing:2,textTransform:"uppercase"}}><span style={{color:TEXT}}>SEEN</span><span style={{color:SAGE}}>IT</span></div>
           <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:26,color:TEXT,lineHeight:1.2,marginTop:2}}>
-            {tab==="home"?(profile?.display_name?`Hey, ${profile.display_name}.`:"What are you watching?"):tab==="library"?"Your library":tab==="friends"?"Your people":"Your stats"}
+            {tab==="home"?(profile?.display_name?`Hey, ${profile.display_name}.`:"What are you watching?"):tab==="library"?"Your library":tab==="friends"?"Your people":tab==="discover"?"Discover":"Your stats"}
           </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",marginTop:2}}>
@@ -1454,7 +1609,7 @@ export default function SeenIt(){
         )}
 
         {tab==="friends"&&session&&<div className="up"><FriendsScreen userId={session.user.id}/></div>}
-        {tab==="stats"&&<div className="up"><StatsScreen library={library} profile={profile}/></div>}
+        {tab==="discover"&&<div className="up"><DiscoverScreen library={library} onAdd={addToLibrary}/></div>}
       </div>
 
       {/* ── BOTTOM NAV ── */}
