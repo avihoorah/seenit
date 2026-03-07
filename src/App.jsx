@@ -1933,12 +1933,18 @@ export default function SeenIt(){
         {/* LIBRARY */}
         {tab==="library"&&(
           <div className="up">
-            {/* Series / Movies / All tabs */}
-            <div style={{display:"flex",gap:0,padding:"0 20px",marginBottom:12,borderBottom:`1px solid ${BORDER}`}}>
-              {[{id:"all",label:"All"},{id:"series",label:"Series"},{id:"movies",label:"Movies"}].map(t=>(
-                <button key={t.id} onClick={()=>setLibTab(t.id)} style={{padding:"10px 16px",background:"none",border:"none",borderBottom:`2px solid ${libTab===t.id?SAGE:"transparent"}`,color:libTab===t.id?SAGE:TEXT3,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>{t.label}</button>
-              ))}
-            </div>
+           {/* Series / Movies / All tabs + Sort */}
+<div style={{display:"flex",alignItems:"center",padding:"0 20px",marginBottom:12,borderBottom:`1px solid ${BORDER}`}}>
+  {[{id:"all",label:"All"},{id:"series",label:"Series"},{id:"movies",label:"Movies"}].map(t=>(
+    <button key={t.id} onClick={()=>setLibTab(t.id)} style={{padding:"10px 16px",background:"none",border:"none",borderBottom:`2px solid ${libTab===t.id?SAGE:"transparent"}`,color:libTab===t.id?SAGE:TEXT3,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>{t.label}</button>
+  ))}
+  <select value={libSort} onChange={e=>setLibSort(e.target.value)}
+    style={{marginLeft:"auto",background:"transparent",border:"none",fontSize:12,fontWeight:700,color:TEXT2,fontFamily:"inherit",outline:"none",cursor:"pointer",padding:"4px 0"}}>
+    <option value="added">Latest</option>
+    <option value="rating">Top rated</option>
+    <option value="alpha">A–Z</option>
+  </select>
+</div>
             {/* Library search */}
             <div style={{padding:"0 20px",marginBottom:12}}>
               <input value={libSearch} onChange={e=>setLibSearch(e.target.value)} placeholder="Search your library…"
