@@ -1950,24 +1950,15 @@ export default function SeenIt(){
               <input value={libSearch} onChange={e=>setLibSearch(e.target.value)} placeholder="Search your library…"
                 style={{width:"100%",background:CARD,border:"none",borderRadius:10,padding:"10px 14px",fontSize:14,fontFamily:"inherit",color:TEXT,outline:"none",boxSizing:"border-box"}}/>
             </div>
-            {/* Status filter pills + sort */}
-            <div style={{display:"flex",alignItems:"center",padding:"0 20px",marginBottom:16,gap:8}}>
-              <div style={{display:"flex",gap:8,flex:1,overflowX:"auto"}}>
-                {[{id:"all",label:"All"},{id:"Watching",label:"Watching",color:SAGE},{id:"Watchlist",label:"Watchlist"},{id:"Finished",label:"Finished",color:"#E65100"},{id:"Dropped",label:"Dropped",color:"#9B4444"}].map(s=>{
-                  const active=statusTab===s.id;
-                  return(
-                    <button key={s.id} onClick={()=>setStatusTab(s.id)} style={{flexShrink:0,padding:"6px 14px",borderRadius:20,border:`1.5px solid ${active?(s.color||TEXT):BORDER}`,background:active?(s.color||TEXT):"transparent",color:active?"#fff":TEXT2,fontFamily:"inherit",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s"}}>{s.label}</button>
-                  );
-                })}
-              </div>
-              {/* Sort dropdown */}
-              <select value={libSort} onChange={e=>setLibSort(e.target.value)}
-                style={{flexShrink:0,background:CARD,border:`1.5px solid ${BORDER}`,borderRadius:20,padding:"6px 12px",fontSize:12,fontWeight:700,color:TEXT2,fontFamily:"inherit",outline:"none",cursor:"pointer"}}>
-                <option value="added">Latest</option>
-                <option value="rating">Top rated</option>
-                <option value="alpha">A–Z</option>
-              </select>
-            </div>
+{/* Status filter pills */}
+<div style={{display:"flex",gap:8,padding:"0 20px",marginBottom:16,overflowX:"auto"}}>
+  {[{id:"all",label:"All"},{id:"Watching",label:"Watching",color:SAGE},{id:"Watchlist",label:"Watchlist"},{id:"Finished",label:"Finished",color:"#E65100"},{id:"Dropped",label:"Dropped",color:"#9B4444"}].map(s=>{
+    const active=statusTab===s.id;
+    return(
+      <button key={s.id} onClick={()=>setStatusTab(s.id)} style={{flexShrink:0,padding:"6px 14px",borderRadius:20,border:`1.5px solid ${active?(s.color||TEXT):BORDER}`,background:active?(s.color||TEXT):"transparent",color:active?"#fff":TEXT2,fontFamily:"inherit",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s"}}>{s.label}</button>
+    );
+  })}
+</div>
             {loadingLib&&library.length===0&&<div style={{display:"flex",justifyContent:"center",padding:"30px 0"}}><Spin/></div>}
             {/* Grid view */}
             <div style={{padding:"0 20px 100px"}}>
