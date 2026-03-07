@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useContext } from "react";
 import ReactDOM from "react-dom";
 import { createClient } from "@supabase/supabase-js";
 
@@ -73,9 +73,43 @@ async function fetchTrending(){
 }
 
 // ── Primitives ─────────────────────────────────────────────────────────────────
-function Spin({size=20}){
-  return <div style={{width:size,height:size,border:`2px solid ${BORDER}`,borderTop:`2px solid ${TEXT}`,borderRadius:"50%",animation:"spin .6s linear infinite",flexShrink:0}}/>;
+function Spin({size=20,color=TEXT}){
+  return(
+    <>
+      <style>{`@keyframes spin{to{transform:rotate(360deg);}}`}</style>
+      <div style={{width:size,height:size,border:`2px solid ${BORDER}`,borderTop:`2px solid ${color}`,borderRadius:"50%",animation:"spin .6s linear infinite",flexShrink:0}}/>
+    </>
+  );
 }
+
+// ── Toast ──────────────────────────────────────────────────────────────────────
+const ToastContext = React.createContext(null);
+function ToastProvider({children}){
+  const [toasts,setToasts]=useState([]);
+  const show=useCallback((msg,type="success")=>{
+    const id=Date.now();
+    setToasts(p=>[...p,{id,msg,type}]);
+    setTimeout(()=>setToasts(p=>p.filter(t=>t.id!==id)),2800);
+  },[]);
+  return(
+    <ToastContext.Provider value={show}>
+      {children}
+      <div style={{position:"fixed",bottom:90,left:"50%",transform:"translateX(-50%)",zIndex:9999,display:"flex",flexDirection:"column",gap:8,alignItems:"center",pointerEvents:"none"}}>
+        {toasts.map(t=>(
+          <div key={t.id} style={{
+            background:t.type==="error"?"#c0392b":t.type==="info"?TEXT:SAGE,
+            color:"#fff",padding:"10px 18px",borderRadius:24,fontSize:13,fontWeight:700,
+            fontFamily:"'DM Sans',system-ui,sans-serif",
+            boxShadow:"0 4px 20px rgba(0,0,0,0.18)",
+            animation:"toastIn .25s ease",whiteSpace:"nowrap",
+          }}>{t.msg}</div>
+        ))}
+      </div>
+      <style>{`@keyframes toastIn{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:none;}}`}</style>
+    </ToastContext.Provider>
+  );
+}
+function useToast(){ return React.useContext(ToastContext)||((msg)=>{}); }
 
 function Stars({value,onSet,size=14}){
   const [hov,setHov]=useState(0);
@@ -617,6 +651,8 @@ function FriendsScreen({userId}){
   const [pending,setPending]=useState([]);
   const [recs,setRecs]=useState([]);
   const [recsMeta,setRecsMeta]=useState({});
+  const [activity,setActivity]=useState([]);
+  const [activityMeta,setActivityMeta]=useState({});
   const [friendSearch,setFriendSearch]=useState("");
   const [friendResult,setFriendResult]=useState(undefined);
   const [searching,setSearching]=useState(false);
@@ -625,13 +661,34 @@ function FriendsScreen({userId}){
   const [recNote,setRecNote]=useState("");
   const [selectedFriend,setSelectedFriend]=useState(null);
   const [sent,setSent]=useState(false);
+  const toast=useToast();
 
   useEffect(()=>{ loadFriends(); loadRecs(); },[]);
 
   const loadFriends=async()=>{
     const {data}=await sb.from("friendships").select("*, requester:requester_id(id,username,display_name), addressee:addressee_id(id,username,display_name)").or(`requester_id.eq.${userId},addressee_id.eq.${userId}`);
-    setFriends((data||[]).filter(f=>f.status==="accepted").map(f=>f.requester_id===userId?f.addressee:f.requester));
+    const accepted=(data||[]).filter(f=>f.status==="accepted");
+    const friendList=accepted.map(f=>f.requester_id===userId?f.addressee:f.requester);
+    setFriends(friendList);
     setPending((data||[]).filter(f=>f.status==="pending"&&f.addressee_id===userId).map(f=>({...f.requester,friendship_id:f.id})));
+    // Load activity feed for friends
+    if(friendList.length>0){
+      const friendIds=friendList.map(f=>f.id);
+      const {data:acts}=await sb.from("library")
+        .select("*")
+        .in("user_id",friendIds)
+        .not("watched_at","is",null)
+        .order("watched_at",{ascending:false})
+        .limit(20);
+      if(acts&&acts.length>0){
+        // Attach friend display names
+        const withNames=acts.map(a=>({...a,_friend:friendList.find(f=>f.id===a.user_id)}));
+        setActivity(withNames);
+        // Fetch meta for unique tmdb_ids
+        const unique=[...new Map(acts.map(a=>[a.tmdb_id,a])).values()];
+        unique.forEach(async a=>{ try{ const m=await fetchMeta(a.tmdb_id,a.media_type); setActivityMeta(p=>({...p,[a.tmdb_id]:m})); }catch{} });
+      }
+    }
   };
 
   const loadRecs=async()=>{
@@ -651,9 +708,10 @@ function FriendsScreen({userId}){
   const sendRequest=async(id)=>{
     await sb.from("friendships").insert({requester_id:userId,addressee_id:id});
     setFriendResult(undefined); setFriendSearch("");
+    toast("Friend request sent ✓");
   };
 
-  const acceptRequest=async(fid)=>{ await sb.from("friendships").update({status:"accepted"}).eq("id",fid); loadFriends(); };
+  const acceptRequest=async(fid)=>{ await sb.from("friendships").update({status:"accepted"}).eq("id",fid); loadFriends(); toast("Friend added ✓"); };
 
   useEffect(()=>{
     if(recQuery.length<2){ setRecSearch([]); return; }
@@ -664,13 +722,26 @@ function FriendsScreen({userId}){
   const sendRec=async(item)=>{
     if(!selectedFriend) return;
     await sb.from("recommendations").insert({from_user_id:userId,to_user_id:selectedFriend.id,tmdb_id:item.id,media_type:item.media_type,note:recNote});
-    setRecQuery(""); setRecNote(""); setRecSearch([]); setSent(true);
+    setRecQuery(""); setRecNote(""); setRecSearch([]);
+    toast(`Recommended to ${selectedFriend.display_name||selectedFriend.username} ✓`);
+    setSent(true);
     setTimeout(()=>setSent(false),3000);
   };
 
   const handleRec=async(recId,status)=>{
     await sb.from("recommendations").update({status}).eq("id",recId);
     setRecs(p=>p.filter(r=>r.id!==recId));
+    if(status==="accepted") toast("Added to Watchlist ✓");
+  };
+
+  const timeAgo=(dateStr)=>{
+    const diff=Date.now()-new Date(dateStr).getTime();
+    const h=Math.floor(diff/3600000);
+    if(h<1) return "just now";
+    if(h<24) return `${h}h ago`;
+    const d=Math.floor(h/24);
+    if(d<7) return `${d}d ago`;
+    return new Date(dateStr).toLocaleDateString("en-GB",{day:"numeric",month:"short"});
   };
 
   return(
@@ -690,6 +761,37 @@ function FriendsScreen({userId}){
           ))}
         </div>
       )}
+
+      {/* Activity feed */}
+      {activity.length>0&&(
+        <div style={{marginBottom:28}}>
+          <SectionLabel>What friends are watching</SectionLabel>
+          {activity.slice(0,8).map((a,i)=>{
+            const meta=activityMeta[a.tmdb_id];
+            const title=meta?.name||meta?.title||"…";
+            const status=(a.lists||[]).includes("Finished")?"finished":(a.lists||[]).includes("Watching")?"started watching":"added";
+            const friend=a._friend;
+            return(
+              <div key={a.id||i} style={{display:"flex",gap:12,alignItems:"center",padding:"12px 0",borderBottom:`1px solid ${BORDER}`}}>
+                <Av name={friend?.display_name||friend?.username||"?"} size={36}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,color:TEXT,lineHeight:1.4}}>
+                    <span style={{fontWeight:700}}>{friend?.display_name||friend?.username}</span>
+                    <span style={{color:TEXT2}}> {status} </span>
+                    <span style={{fontWeight:700}}>{title}</span>
+                  </div>
+                  {a.rating&&<div style={{marginTop:3}}><Stars value={a.rating} size={11}/></div>}
+                </div>
+                <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0}}>
+                  {meta?.poster_path&&<img src={IMG(meta.poster_path,"w92")} style={{width:32,height:48,borderRadius:5,objectFit:"cover"}} alt={title}/>}
+                  <span style={{fontSize:10,color:TEXT3}}>{timeAgo(a.watched_at||a.created_at)}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <div style={{marginBottom:24}}>
         <SectionLabel>Your people ({friends.length})</SectionLabel>
         {friends.length===0&&<p style={{fontSize:13,color:TEXT3,marginBottom:14}}>Add friends below to share what you're watching.</p>}
@@ -989,25 +1091,26 @@ function TrendingCarousel({items,onPreview,onAdd}){
   const [idx,setIdx]=useState(0);
   const trackRef=useRef();
   const startX=useRef(null);
-  const dragging=useRef(false);
+  const didDrag=useRef(false);
   const total=Math.min(items.length,8);
   const item=items[idx];
+  const toast=useToast();
 
   const goTo=(n)=>setIdx(Math.max(0,Math.min(total-1,n)));
 
-  const onTouchStart=(e)=>{ startX.current=e.touches[0].clientX; dragging.current=true; };
+  const onTouchStart=(e)=>{ startX.current=e.touches[0].clientX; didDrag.current=false; };
   const onTouchEnd=(e)=>{
-    if(!dragging.current||startX.current===null) return;
+    if(startX.current===null) return;
     const dx=e.changedTouches[0].clientX-startX.current;
-    if(Math.abs(dx)>40){ dx<0?goTo(idx+1):goTo(idx-1); }
-    dragging.current=false; startX.current=null;
+    if(Math.abs(dx)>40){ didDrag.current=true; dx<0?goTo(idx+1):goTo(idx-1); }
+    startX.current=null;
   };
-  const onMouseDown=(e)=>{ startX.current=e.clientX; dragging.current=true; };
+  const onMouseDown=(e)=>{ startX.current=e.clientX; didDrag.current=false; };
   const onMouseUp=(e)=>{
-    if(!dragging.current||startX.current===null) return;
+    if(startX.current===null) return;
     const dx=e.clientX-startX.current;
-    if(Math.abs(dx)>40){ dx<0?goTo(idx+1):goTo(idx-1); }
-    dragging.current=false; startX.current=null;
+    if(Math.abs(dx)>40){ didDrag.current=true; dx<0?goTo(idx+1):goTo(idx-1); }
+    startX.current=null;
   };
 
   if(!item) return null;
@@ -1020,7 +1123,7 @@ function TrendingCarousel({items,onPreview,onAdd}){
       onMouseDown={onMouseDown} onMouseUp={onMouseUp}>
       {/* Card */}
       <div ref={trackRef} style={{position:"relative",height:270,overflow:"hidden",cursor:"pointer"}}
-        onClick={()=>{ if(!dragging.current||(startX.current!==null&&Math.abs(startX.current-startX.current)<5)) onPreview(item); }}>
+        onClick={()=>{ if(!didDrag.current) onPreview(item); }}>
         {item.backdrop_path
           ?<img src={IMG(item.backdrop_path,"w780")} alt={title} style={{width:"100%",height:"100%",objectFit:"cover",display:"block",transition:"opacity .3s"}} key={item.id}/>
           :<div style={{width:"100%",height:"100%",background:CARD}}/>}
@@ -1040,12 +1143,12 @@ function TrendingCarousel({items,onPreview,onAdd}){
             </div>
           )}
           <button
-            onClick={e=>{ e.stopPropagation(); onAdd({...item,media_type:item.first_air_date?"tv":"movie",lists:["Watchlist"]}); }}
+            onClick={e=>{ e.stopPropagation(); onAdd({...item,media_type:item.first_air_date?"tv":"movie",lists:["Watchlist"]}); toast(`Added "${title}" to Watchlist ✓`); }}
             style={{background:"#fff",border:"none",borderRadius:20,padding:"7px 20px",fontSize:12,fontWeight:800,color:TEXT,cursor:"pointer",fontFamily:"inherit"}}>
             + Watchlist
           </button>
         </div>
-        {/* Prev/next tap zones — invisible but large */}
+        {/* Prev/next tap zones */}
         <div style={{position:"absolute",top:0,left:0,width:"30%",height:"100%"}} onClick={e=>{ e.stopPropagation(); goTo(idx-1); }}/>
         <div style={{position:"absolute",top:0,right:0,width:"30%",height:"100%"}} onClick={e=>{ e.stopPropagation(); goTo(idx+1); }}/>
       </div>
@@ -1060,21 +1163,32 @@ function TrendingCarousel({items,onPreview,onAdd}){
   );
 }
 
+// Persistent discover state lifted outside component so it survives tab switches
+let _discoverCache = { data: null, activeGenre: {id:null,label:"Popular"}, genreData: null };
+
 function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail,suggested=[]}){
-  const [data,setData]=useState(null);
-  const [loading,setLoading]=useState(true);
+  const [data,setData]=useState(_discoverCache.data);
+  const [loading,setLoading]=useState(!_discoverCache.data);
+  const [loadError,setLoadError]=useState(false);
   const [q,setQ]=useState("");
   const [searchRes,setSearchRes]=useState([]);
   const [searching,setSearching]=useState(false);
-  const [activeGenre,setActiveGenre]=useState(GENRES[0]);
-  const [genreData,setGenreData]=useState(null);
+  const [activeGenre,setActiveGenre]=useState(_discoverCache.activeGenre);
+  const [genreData,setGenreData]=useState(_discoverCache.genreData);
   const [genreLoading,setGenreLoading]=useState(false);
   const [preview,setPreview]=useState(null);
+  const [searchHistory,setSearchHistory]=useState(()=>{ try{ return JSON.parse(localStorage.getItem("seenit_search_history")||"[]"); }catch{ return []; } });
   const searchRef=useRef();
   const libIds=new Set(library.map(i=>i.tmdb_id));
+  const toast=useToast();
 
   useEffect(()=>{
-    fetchTrending().then(d=>{ setData(d); setLoading(false); });
+    if(_discoverCache.data){ setData(_discoverCache.data); setLoading(false); return; }
+    setLoadError(false);
+    fetchTrending().then(d=>{
+      setData(d); setLoading(false);
+      _discoverCache.data=d;
+    }).catch(()=>{ setLoading(false); setLoadError(true); });
   },[]);
 
   // Auto-focus search if coming from header button
@@ -1091,18 +1205,30 @@ function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail,suggested=[]}){
     return()=>clearTimeout(t);
   },[q]);
 
-  // Genre filter
+  const addToHistory=(term)=>{
+    if(!term.trim()||term.length<2) return;
+    const next=[term,...searchHistory.filter(h=>h!==term)].slice(0,6);
+    setSearchHistory(next);
+    try{ localStorage.setItem("seenit_search_history",JSON.stringify(next)); }catch{}
+  };
+
+  const clearHistory=()=>{ setSearchHistory([]); try{ localStorage.removeItem("seenit_search_history"); }catch{} };
+
+  // Genre filter — persist across tab switches
   const handleGenre=async(genre)=>{
-    if(activeGenre?.id===genre.id){ return; } // already selected
+    if(activeGenre?.id===genre.id) return;
     setActiveGenre(genre);
-    if(genre.id===null){ setGenreData(null); return; } // Popular = show trending
+    _discoverCache.activeGenre=genre;
+    if(genre.id===null){ setGenreData(null); _discoverCache.genreData=null; return; }
     setGenreLoading(true);
     try{
       const [movies,series]=await Promise.all([
         tmdb(`/discover/movie?with_genres=${genre.id}&sort_by=popularity.desc`),
         tmdb(`/discover/tv?with_genres=${genre.id}&sort_by=popularity.desc`),
       ]);
-      setGenreData({movies:(movies.results||[]).slice(0,20),series:(series.results||[]).slice(0,20)});
+      const gd={movies:(movies.results||[]).slice(0,20),series:(series.results||[]).slice(0,20)};
+      setGenreData(gd);
+      _discoverCache.genreData=gd;
     }catch{}
     setGenreLoading(false);
   };
@@ -1110,9 +1236,19 @@ function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail,suggested=[]}){
   const handleAdd=(item,lists=["Watchlist"])=>{
     const type=item.media_type||(item.first_air_date?"tv":"movie");
     onAdd({...item,id:item.id,media_type:type,lists});
+    toast(`Added "${item.title||item.name}" to Watchlist ✓`);
   };
 
   if(loading) return <div style={{display:"flex",justifyContent:"center",padding:"60px 0"}}><Spin/></div>;
+  if(loadError) return(
+    <div style={{textAlign:"center",padding:"60px 24px"}}>
+      <div style={{fontSize:32,marginBottom:12}}>😕</div>
+      <div style={{fontSize:15,fontWeight:700,color:TEXT,marginBottom:6}}>Couldn't load trending</div>
+      <div style={{fontSize:13,color:TEXT2,marginBottom:20}}>Check your connection and try again.</div>
+      <button onClick={()=>{ setLoading(true); setLoadError(false); fetchTrending().then(d=>{ setData(d); setLoading(false); _discoverCache.data=d; }).catch(()=>{ setLoading(false); setLoadError(true); }); }}
+        style={{background:TEXT,border:"none",borderRadius:12,padding:"11px 24px",color:BG,fontWeight:700,fontSize:14,fontFamily:"inherit",cursor:"pointer"}}>Retry</button>
+    </div>
+  );
 
   const featured=(data.featured||[]).filter(i=>!libIds.has(i.id));
   const isPopular=activeGenre?.id===null;
@@ -1129,12 +1265,34 @@ function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail,suggested=[]}){
       {/* Search bar */}
       <div style={{padding:"0 20px 14px",position:"relative",display:"flex",alignItems:"center",gap:10}}>
         <div style={{flex:1,position:"relative"}}>
-          <input ref={searchRef} value={q} onChange={e=>setQ(e.target.value)} placeholder="Search movies and shows…"
+          <input ref={searchRef} value={q}
+            onChange={e=>setQ(e.target.value)}
+            onKeyDown={e=>{ if(e.key==="Enter"&&q.trim().length>=2) addToHistory(q.trim()); }}
+            onBlur={()=>{ if(q.trim().length>=2) addToHistory(q.trim()); }}
+            placeholder="Search movies and shows…"
             style={{width:"100%",background:CARD,border:"none",borderRadius:12,padding:"11px 40px 11px 14px",fontFamily:"inherit",color:TEXT,outline:"none",boxSizing:"border-box"}}/>
           {searching&&<div style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)"}}><Spin size={16}/></div>}
           {q.length>0&&!searching&&<button onClick={()=>setQ("")} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:TEXT3,fontSize:18,cursor:"pointer",lineHeight:1}}>×</button>}
         </div>
       </div>
+
+      {/* Search history — shown when input focused and empty */}
+      {!isSearching&&q.length===0&&searchHistory.length>0&&(
+        <div style={{padding:"0 20px",marginBottom:16}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <span style={{fontSize:10,fontWeight:800,letterSpacing:2,color:TEXT3,textTransform:"uppercase"}}>Recent searches</span>
+            <button onClick={clearHistory} style={{background:"none",border:"none",fontSize:11,color:TEXT3,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>Clear</button>
+          </div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            {searchHistory.map(h=>(
+              <button key={h} onClick={()=>setQ(h)}
+                style={{padding:"6px 14px",borderRadius:20,border:`1.5px solid ${BORDER}`,background:"transparent",color:TEXT2,fontFamily:"inherit",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                🔍 {h}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Search results */}
       {isSearching&&(
@@ -1513,6 +1671,7 @@ export default function SeenIt(){
   const [libTab,setLibTab]=useState("all");
   const [statusTab,setStatusTab]=useState("all");
   const [libSearch,setLibSearch]=useState("");
+  const [libSort,setLibSort]=useState("added"); // "added" | "rating" | "alpha"
   const [showProfile,setShowProfile]=useState(false);
   const [showWrapped,setShowWrapped]=useState(false);
   const [focusSearch,setFocusSearch]=useState(false);
@@ -1538,12 +1697,19 @@ export default function SeenIt(){
     setLoadingLib(true);
     const {data}=await sb.from("library").select("*").eq("user_id",uid).order("created_at",{ascending:false});
     if(!data){ setLoadingLib(false); return; }
-    const enriched=await Promise.all(data.map(async item=>{
-      try{ const meta=await fetchMeta(item.tmdb_id,item.media_type); return{...item,_meta:meta}; }
-      catch{ return{...item,_meta:null}; }
-    }));
-    setLibrary(enriched);
+    // Show items immediately with no meta, then enrich in batches to avoid TMDB rate limits
+    setLibrary(data.map(item=>({...item,_meta:null})));
     setLoadingLib(false);
+    const BATCH=5;
+    const enriched=[...data.map(item=>({...item,_meta:null}))];
+    for(let i=0;i<data.length;i+=BATCH){
+      const batch=data.slice(i,i+BATCH);
+      await Promise.all(batch.map(async(item,bi)=>{
+        try{ const meta=await fetchMeta(item.tmdb_id,item.media_type); enriched[i+bi]={...item,_meta:meta}; }
+        catch{ /* keep null meta */ }
+      }));
+      setLibrary([...enriched]);
+    }
     // Load upcoming episodes
     const watchingShows=enriched.filter(i=>i.media_type==="tv"&&(i.lists||[]).includes("Watching"));
     if(watchingShows.length>0){
@@ -1596,7 +1762,12 @@ export default function SeenIt(){
   const watchlist=library.filter(i=>(i.lists||[]).includes("Watchlist"));
   const libByType=libTab==="all"?library:libTab==="series"?library.filter(i=>i.media_type==="tv"):library.filter(i=>i.media_type==="movie");
   const libByStatus=statusTab==="all"?libByType:libByType.filter(i=>(i.lists||[]).includes(statusTab));
-  const libFiltered=libSearch.trim()===""?libByStatus:libByStatus.filter(i=>(i._meta?.name||i._meta?.title||"").toLowerCase().includes(libSearch.toLowerCase()));
+  const libSearched=libSearch.trim()===""?libByStatus:libByStatus.filter(i=>(i._meta?.name||i._meta?.title||"").toLowerCase().includes(libSearch.toLowerCase()));
+  const libFiltered=[...libSearched].sort((a,b)=>{
+    if(libSort==="rating") return (b.rating||0)-(a.rating||0);
+    if(libSort==="alpha") return (a._meta?.name||a._meta?.title||"").localeCompare(b._meta?.name||b._meta?.title||"");
+    return 0; // "added" — already sorted by created_at desc from DB
+  });
 
   const TABS=[
     {id:"home",label:"Home",icon:(active)=>(
@@ -1622,14 +1793,17 @@ export default function SeenIt(){
   ];
 
   if(authLoading) return(
-    <div style={{background:BG,minHeight:"100dvh",display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg);}}`}</style>
-      <Spin size={28}/>
-    </div>
+    <ToastProvider>
+      <div style={{background:BG,minHeight:"100dvh",display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <style>{`@keyframes spin{to{transform:rotate(360deg);}}`}</style>
+        <Spin size={28}/>
+      </div>
+    </ToastProvider>
   );
-  if(!session) return <AuthScreen/>;
+  if(!session) return <ToastProvider><AuthScreen/></ToastProvider>;
 
   return(
+    <ToastProvider>
     <div style={{background:BG,height:"100dvh",maxWidth:430,margin:"0 auto",fontFamily:"'DM Sans',system-ui,sans-serif",color:TEXT,display:"flex",flexDirection:"column",overflow:"hidden"}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@400;500;600;700;800&display=swap');
@@ -1766,16 +1940,25 @@ export default function SeenIt(){
               <input value={libSearch} onChange={e=>setLibSearch(e.target.value)} placeholder="Search your library…"
                 style={{width:"100%",background:CARD,border:"none",borderRadius:10,padding:"10px 14px",fontSize:14,fontFamily:"inherit",color:TEXT,outline:"none",boxSizing:"border-box"}}/>
             </div>
-            {/* Status filter pills */}
-            <div style={{display:"flex",gap:8,padding:"0 20px",marginBottom:16,overflowX:"auto"}}>
-              {[{id:"all",label:"All"},{id:"Watching",label:"Watching",color:SAGE},{id:"Watchlist",label:"Watchlist"},{id:"Finished",label:"Finished",color:"#E65100"},{id:"Dropped",label:"Dropped",color:"#9B4444"}].map(s=>{
-                const active=statusTab===s.id;
-                return(
-                  <button key={s.id} onClick={()=>setStatusTab(s.id)} style={{flexShrink:0,padding:"6px 14px",borderRadius:20,border:`1.5px solid ${active?(s.color||TEXT):BORDER}`,background:active?(s.color||TEXT):"transparent",color:active?"#fff":TEXT2,fontFamily:"inherit",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s"}}>{s.label}</button>
-                );
-              })}
+            {/* Status filter pills + sort */}
+            <div style={{display:"flex",alignItems:"center",padding:"0 20px",marginBottom:16,gap:8}}>
+              <div style={{display:"flex",gap:8,flex:1,overflowX:"auto"}}>
+                {[{id:"all",label:"All"},{id:"Watching",label:"Watching",color:SAGE},{id:"Watchlist",label:"Watchlist"},{id:"Finished",label:"Finished",color:"#E65100"},{id:"Dropped",label:"Dropped",color:"#9B4444"}].map(s=>{
+                  const active=statusTab===s.id;
+                  return(
+                    <button key={s.id} onClick={()=>setStatusTab(s.id)} style={{flexShrink:0,padding:"6px 14px",borderRadius:20,border:`1.5px solid ${active?(s.color||TEXT):BORDER}`,background:active?(s.color||TEXT):"transparent",color:active?"#fff":TEXT2,fontFamily:"inherit",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s"}}>{s.label}</button>
+                  );
+                })}
+              </div>
+              {/* Sort dropdown */}
+              <select value={libSort} onChange={e=>setLibSort(e.target.value)}
+                style={{flexShrink:0,background:CARD,border:`1.5px solid ${BORDER}`,borderRadius:20,padding:"6px 12px",fontSize:12,fontWeight:700,color:TEXT2,fontFamily:"inherit",outline:"none",cursor:"pointer"}}>
+                <option value="added">Latest</option>
+                <option value="rating">Top rated</option>
+                <option value="alpha">A–Z</option>
+              </select>
             </div>
-            {loadingLib&&<div style={{display:"flex",justifyContent:"center",padding:"30px 0"}}><Spin/></div>}
+            {loadingLib&&library.length===0&&<div style={{display:"flex",justifyContent:"center",padding:"30px 0"}}><Spin/></div>}
             {/* Grid view */}
             <div style={{padding:"0 20px 100px"}}>
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
@@ -1838,5 +2021,6 @@ export default function SeenIt(){
       {showProfile&&<ProfileScreen profile={profile} library={library} onClose={()=>setShowProfile(false)} onSignOut={()=>{ setShowProfile(false); signOut(); }} onProfileUpdate={setProfile}/>}
       {showWrapped&&<MonthlyWrapped library={library} profile={profile} onClose={()=>setShowWrapped(false)}/>}
     </div>
+    </ToastProvider>
   );
 }
