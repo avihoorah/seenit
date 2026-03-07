@@ -17,7 +17,7 @@ const TEXT = "#1C1C1A";
 const TEXT2 = "#8A8278";
 const TEXT3 = "#B8B0A6";
 
-const LISTS_ALL = ["Watching","Watchlist","Finished","With Girlfriend","With Friends","Date Night","Comfort Watch","Mind Bending"];
+const LISTS_ALL = ["Watching","Watchlist","Finished","Dropped","With Girlfriend","With Friends","Date Night","Comfort Watch","Mind Bending"];
 
 async function tmdb(path) {
   const sep = path.includes("?") ? "&" : "?";
@@ -108,8 +108,10 @@ function SectionLabel({children}){
 function StatusBadge({lists=[]}){
   const watching=lists.includes("Watching");
   const finished=lists.includes("Finished");
+  const dropped=lists.includes("Dropped");
   if(finished) return <span style={{fontSize:10,fontWeight:700,background:"#FFF3E0",color:"#E65100",padding:"2px 8px",borderRadius:10}}>Finished</span>;
   if(watching) return <span style={{fontSize:10,fontWeight:700,background:SAGE_LIGHT,color:SAGE,padding:"2px 8px",borderRadius:10}}>Watching</span>;
+  if(dropped) return <span style={{fontSize:10,fontWeight:700,background:"#F5F0F0",color:"#9B4444",padding:"2px 8px",borderRadius:10}}>Dropped</span>;
   return <span style={{fontSize:10,fontWeight:700,background:CARD,color:TEXT3,padding:"2px 8px",borderRadius:10}}>Watchlist</span>;
 }
 
@@ -145,7 +147,9 @@ function AuthScreen(){
   return(
     <div style={{background:BG,minHeight:"100dvh",maxWidth:430,margin:"0 auto",display:"flex",flexDirection:"column",justifyContent:"center",padding:"0 28px",fontFamily:"'DM Sans',system-ui,sans-serif"}}>
       <div style={{marginBottom:48}}>
-        <div style={{fontSize:10,fontWeight:800,letterSpacing:3,color:TEXT3,textTransform:"uppercase",marginBottom:10}}>SeenIt</div>
+        <div style={{fontSize:13,fontWeight:800,letterSpacing:2,textTransform:"uppercase",marginBottom:10}}>
+          <span style={{color:TEXT}}>SEEN</span><span style={{color:SAGE}}>IT</span>
+        </div>
         <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:38,color:TEXT,lineHeight:1.15,whiteSpace:"pre-line"}}>
           {mode==="login"?"Welcome\nback.":"Create your\naccount."}
         </div>
@@ -776,12 +780,51 @@ function FriendsScreen({userId}){
 }
 
 // ── Stats Screen ───────────────────────────────────────────────────────────────
+function TopRatedSection({items,label}){
+  const [expanded,setExpanded]=useState(false);
+  const rated=[...items].filter(i=>i.rating).sort((a,b)=>b.rating-a.rating);
+  if(rated.length===0) return null;
+  const shown=expanded?rated:rated.slice(0,5);
+  return(
+    <div style={{marginBottom:24}}>
+      <SectionLabel>{label}</SectionLabel>
+      {shown.map((item,i)=>{
+        const title=item._meta?.name||item._meta?.title||"—";
+        return(
+          <div key={item.id} style={{display:"flex",gap:14,padding:"12px 0",borderBottom:i<shown.length-1?`1px solid ${BORDER}`:"none",alignItems:"center"}}>
+            <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:28,color:BORDER,width:28,textAlign:"center",fontWeight:700}}>{i+1}</div>
+            <Poster path={item._meta?.poster_path} title={title} w={40} radius={6}/>
+            <div style={{flex:1}}>
+              <div style={{fontSize:14,fontWeight:700,color:TEXT,marginBottom:4}}>{title}</div>
+              <Stars value={item.rating} size={12}/>
+            </div>
+          </div>
+        );
+      })}
+      {rated.length>5&&(
+        <button onClick={()=>setExpanded(e=>!e)} style={{marginTop:10,background:"none",border:`1.5px solid ${BORDER}`,borderRadius:20,padding:"6px 16px",fontSize:12,fontWeight:700,color:TEXT2,cursor:"pointer",fontFamily:"inherit"}}>
+          {expanded?`Show less ↑`:`Show all ${rated.length} ↓`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function StatsScreen({library,profile}){
   const finished=library.filter(i=>(i.lists||[]).includes("Finished"));
   const watching=library.filter(i=>(i.lists||[]).includes("Watching"));
   const movies=library.filter(i=>i.media_type==="movie");
+  const series=library.filter(i=>i.media_type==="tv");
   const totalEps=library.reduce((acc,i)=>acc+(i.progress_season?((i.progress_season-1)*10+i.progress_episode):0),0);
-  const topRated=[...library].filter(i=>i.rating).sort((a,b)=>b.rating-a.rating).slice(0,5);
+
+  // Watch time: use runtime for movies, avg 45min per episode for series
+  const watchMins=library.reduce((acc,i)=>{
+    if(i.media_type==="movie"&&(i.lists||[]).includes("Finished")) return acc+(i._meta?.runtime||100);
+    if(i.media_type==="tv") return acc+(i.progress_episode||0)*45;
+    return acc;
+  },0);
+  const watchHours=Math.round(watchMins/60);
+
   const genres={};
   library.forEach(i=>{ (i._meta?.genres||[]).forEach(g=>{ genres[g.name]=(genres[g.name]||0)+1; }); });
   const topGenres=Object.entries(genres).sort((a,b)=>b[1]-a[1]).slice(0,5);
@@ -790,31 +833,25 @@ function StatsScreen({library,profile}){
   return(
     <div style={{padding:"0 20px 100px"}}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-        {[{label:"Finished",value:finished.length},{label:"Watching now",value:watching.length},{label:"Movies",value:movies.length},{label:"Episodes tracked",value:totalEps}].map((s,i)=>(
+        {[{label:"Finished",value:finished.length},{label:"Watching now",value:watching.length},{label:"Movies",value:movies.length},{label:"Series",value:series.length}].map((s,i)=>(
           <div key={i} style={{background:i===0?TEXT:CARD,borderRadius:16,padding:"20px 18px"}}>
             <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:44,fontWeight:700,color:i===0?BG:TEXT,lineHeight:1}}>{s.value}</div>
             <div style={{fontSize:12,color:i===0?TEXT3:TEXT2,marginTop:6,fontWeight:500}}>{s.label}</div>
           </div>
         ))}
       </div>
-      {topRated.length>0&&(
-        <div style={{marginBottom:24}}>
-          <SectionLabel>{name}'s top rated</SectionLabel>
-          {topRated.map((item,i)=>{
-            const title=item._meta?.name||item._meta?.title||"—";
-            return(
-              <div key={item.id} style={{display:"flex",gap:14,padding:"12px 0",borderBottom:i<topRated.length-1?`1px solid ${BORDER}`:"none",alignItems:"center"}}>
-                <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:28,color:BORDER,width:28,textAlign:"center",fontWeight:700}}>{i+1}</div>
-                <Poster path={item._meta?.poster_path} title={title} w={40} radius={6}/>
-                <div style={{flex:1}}>
-                  <div style={{fontSize:14,fontWeight:700,color:TEXT,marginBottom:4}}>{title}</div>
-                  <Stars value={item.rating} size={12}/>
-                </div>
-              </div>
-            );
-          })}
+      {/* Watch time banner */}
+      {watchHours>0&&(
+        <div style={{background:SAGE_LIGHT,borderRadius:16,padding:"18px 20px",marginBottom:20,display:"flex",alignItems:"center",gap:14}}>
+          <div style={{fontSize:32}}>🎬</div>
+          <div>
+            <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:22,color:TEXT,fontWeight:700}}>{watchHours} hours watched</div>
+            <div style={{fontSize:12,color:TEXT2,marginTop:2}}>That's {Math.round(watchHours/24)} days of your life. Worth it.</div>
+          </div>
         </div>
       )}
+      <TopRatedSection items={series} label={`${name}'s top rated series`}/>
+      <TopRatedSection items={movies} label={`${name}'s top rated films`}/>
       {topGenres.length>0&&(
         <div>
           <SectionLabel>Top genres</SectionLabel>
@@ -844,6 +881,7 @@ export default function SeenIt(){
   const [searching,setSearching]=useState(false);
   const [libTab,setLibTab]=useState("all");
   const [statusTab,setStatusTab]=useState("all");
+  const [libSearch,setLibSearch]=useState("");
   const [authLoading,setAuthLoading]=useState(true);
   const [upcoming,setUpcoming]=useState([]);
   const [suggested,setSuggested]=useState([]);
@@ -914,7 +952,8 @@ export default function SeenIt(){
   const watching=library.filter(i=>(i.lists||[]).includes("Watching"));
   const watchlist=library.filter(i=>(i.lists||[]).includes("Watchlist"));
   const libByType=libTab==="all"?library:libTab==="series"?library.filter(i=>i.media_type==="tv"):library.filter(i=>i.media_type==="movie");
-  const libFiltered=statusTab==="all"?libByType:libByType.filter(i=>(i.lists||[]).includes(statusTab));
+  const libByStatus=statusTab==="all"?libByType:libByType.filter(i=>(i.lists||[]).includes(statusTab));
+  const libFiltered=libSearch.trim()===""?libByStatus:libByStatus.filter(i=>(i._meta?.name||i._meta?.title||"").toLowerCase().includes(libSearch.toLowerCase()));
 
   const TABS=[
     {id:"home",label:"Home",icon:(active)=>(
@@ -963,7 +1002,9 @@ export default function SeenIt(){
       {/* ── HEADER ── */}
       <div style={{padding:"20px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexShrink:0}}>
         <div>
-          <div style={{fontSize:10,fontWeight:800,letterSpacing:3,color:TEXT3,textTransform:"uppercase"}}>SeenIt</div>
+          <div style={{fontSize:13,fontWeight:800,letterSpacing:2,textTransform:"uppercase",marginBottom:2}}>
+            <span style={{color:TEXT}}>SEEN</span><span style={{color:SAGE}}>IT</span>
+          </div>
           <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:26,color:TEXT,lineHeight:1.2,marginTop:2}}>
             {tab==="home"?(profile?.display_name?`Hey, ${profile.display_name}.`:"What are you watching?"):tab==="library"?"Your library":tab==="friends"?"Your people":"Your stats"}
           </div>
@@ -1092,9 +1133,14 @@ export default function SeenIt(){
                 <button key={t.id} onClick={()=>setLibTab(t.id)} style={{padding:"10px 16px",background:"none",border:"none",borderBottom:`2px solid ${libTab===t.id?SAGE:"transparent"}`,color:libTab===t.id?SAGE:TEXT3,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>{t.label}</button>
               ))}
             </div>
+            {/* Library search */}
+            <div style={{padding:"0 20px",marginBottom:12}}>
+              <input value={libSearch} onChange={e=>setLibSearch(e.target.value)} placeholder="Search your library…"
+                style={{width:"100%",background:CARD,border:"none",borderRadius:10,padding:"10px 14px",fontSize:14,fontFamily:"inherit",color:TEXT,outline:"none",boxSizing:"border-box"}}/>
+            </div>
             {/* Status filter pills */}
             <div style={{display:"flex",gap:8,padding:"0 20px",marginBottom:16,overflowX:"auto"}}>
-              {[{id:"all",label:"All"},{id:"Watching",label:"Watching",color:SAGE},{id:"Watchlist",label:"Watchlist"},{id:"Finished",label:"Finished",color:"#E65100"}].map(s=>{
+              {[{id:"all",label:"All"},{id:"Watching",label:"Watching",color:SAGE},{id:"Watchlist",label:"Watchlist"},{id:"Finished",label:"Finished",color:"#E65100"},{id:"Dropped",label:"Dropped",color:"#9B4444"}].map(s=>{
                 const active=statusTab===s.id;
                 return(
                   <button key={s.id} onClick={()=>setStatusTab(s.id)} style={{flexShrink:0,padding:"6px 14px",borderRadius:20,border:`1.5px solid ${active?(s.color||TEXT):BORDER}`,background:active?(s.color||TEXT):"transparent",color:active?"#fff":TEXT2,fontFamily:"inherit",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s"}}>{s.label}</button>
@@ -1113,7 +1159,7 @@ export default function SeenIt(){
                         {item._meta?.poster_path?<img src={IMG(item._meta.poster_path)} alt={title} style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
                           :<div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",color:TEXT3,fontSize:22}}>🎬</div>}
                         {/* Status bar */}
-                        <div style={{position:"absolute",bottom:0,left:0,right:0,height:4,background:(item.lists||[]).includes("Finished")?"#E65100":(item.lists||[]).includes("Watching")?SAGE:"#C0B8AE"}}/>
+                        <div style={{position:"absolute",bottom:0,left:0,right:0,height:4,background:(item.lists||[]).includes("Finished")?"#E65100":(item.lists||[]).includes("Watching")?SAGE:(item.lists||[]).includes("Dropped")?"#9B4444":"#C0B8AE"}}/>
                       </div>
                       {item.rating&&<div style={{marginTop:4}}><Stars value={item.rating} size={10}/></div>}
                     </div>
@@ -1129,7 +1175,7 @@ export default function SeenIt(){
               {/* Legend */}
               {libFiltered.length>0&&(
                 <div style={{display:"flex",gap:16,marginTop:20,justifyContent:"center"}}>
-                  {[{color:"#E65100",label:"Finished"},{color:SAGE,label:"Watching"},{color:"#C0B8AE",label:"Watchlist"}].map(l=>(
+                  {[{color:"#E65100",label:"Finished"},{color:SAGE,label:"Watching"},{color:"#9B4444",label:"Dropped"},{color:"#C0B8AE",label:"Watchlist"}].map(l=>(
                     <div key={l.label} style={{display:"flex",gap:5,alignItems:"center"}}>
                       <div style={{width:16,height:4,borderRadius:2,background:l.color}}/>
                       <span style={{fontSize:11,color:TEXT2}}>{l.label}</span>
