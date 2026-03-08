@@ -231,7 +231,7 @@ function RatingModal({title,onRate,onSkip}){
           ))}
         </div>
         <button onClick={()=>val>0&&onRate(val)} style={{width:"100%",background:val>0?TEXT:CARD,border:"none",borderRadius:12,padding:"13px",color:val>0?BG:TEXT3,fontWeight:800,fontSize:15,fontFamily:"inherit",cursor:val>0?"pointer":"default",marginBottom:10,transition:"all .2s"}}>
-          {val>0?`Save ${["","★","★★","★★★","★★★★","★★★★★"][val]}`:"Tap a star to rate"}
+          {val>0?"★".repeat(val) ? `Save ` + "★".repeat(val) : "Tap a star to rate":"Tap a star to rate"}
         </button>
         <button onClick={onSkip} style={{background:"none",border:"none",color:TEXT3,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Skip rating</button>
       </div>
@@ -821,7 +821,7 @@ function DailyTriviaScreen({onClose,userId,friends=[]}){
     const correct=_ans.filter(a=>a.correct).length;
     const total=_ans.reduce((s,a)=>s+a.points,0);
     const emojis=_ans.map(a=>a.correct?"🎬":"💀").join("");
-    const text=`🎬 SeenitTrivia ${new Date().toLocaleDateString("en-GB")}\n${emojis}\n${correct}/10 correct · ${total} pts\nseen-it.online`;
+    const text="SeenitTrivia "+new Date().toLocaleDateString("en-GB")+"\n"+emojis+"\n"+correct+"/10 correct - "+total+" pts\nseen-it.online";
     if(navigator.share){ navigator.share({text}); } else { navigator.clipboard?.writeText(text); }
   };
 
@@ -2017,11 +2017,11 @@ function FriendsScreen({userId,myLib=[]}){
                   <div>
                     <div style={{fontSize:11,fontWeight:700,color:TEXT3,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Add a note (optional)</div>
                     <textarea value={recNote} onChange={e=>setRecNote(e.target.value)} rows={2}
-                      placeholder="Why they'll love it…"
+                      placeholder="Why they will love it..."
                       style={{width:"100%",background:BG,border:"none",borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"inherit",color:TEXT,resize:"none",boxSizing:"border-box",outline:"none",marginBottom:10}}/>
                     <button onClick={confirmSendRec} disabled={recSending}
                       style={{width:"100%",background:SAGE,border:"none",borderRadius:10,padding:"12px",color:"#fff",fontWeight:800,fontSize:14,fontFamily:"inherit",cursor:recSending?"default":"pointer",opacity:recSending?0.7:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-                      {recSending?<Spin size={16}/>:`Send to ${recFriend.display_name||recFriend.username} 🎬`}
+                      {recSending?<Spin size={16}/>:`Send to ${recFriend.display_name||recFriend.username}`}
                     </button>
                   </div>
                 )}
@@ -2289,11 +2289,11 @@ function FriendsScreen({userId,myLib=[]}){
                   <div>
                     <div style={{fontSize:11,fontWeight:700,color:TEXT3,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Add a note (optional)</div>
                     <textarea value={recNote} onChange={e=>setRecNote(e.target.value)} rows={2}
-                      placeholder="Why they'll love it…"
+                      placeholder="Why they will love it..."
                       style={{width:"100%",background:BG,border:"none",borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"inherit",color:TEXT,resize:"none",boxSizing:"border-box",outline:"none",marginBottom:10}}/>
                     <button onClick={confirmSendRec} disabled={recSending}
                       style={{width:"100%",background:SAGE,border:"none",borderRadius:10,padding:"12px",color:"#fff",fontWeight:800,fontSize:14,fontFamily:"inherit",cursor:recSending?"default":"pointer",opacity:recSending?0.7:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-                      {recSending?<Spin size={16}/>:`Send to ${recFriend.display_name||recFriend.username} 🎬`}
+                      {recSending?<Spin size={16}/>:`Send to ${recFriend.display_name||recFriend.username}`}
                     </button>
                   </div>
                 )}
@@ -2330,7 +2330,7 @@ function TopRatedSection({items,label}){
       })}
       {rated.length>5&&(
         <button onClick={()=>setExpanded(e=>!e)} style={{marginTop:10,background:"none",border:`1.5px solid ${BORDER}`,borderRadius:20,padding:"6px 16px",fontSize:12,fontWeight:700,color:TEXT2,cursor:"pointer",fontFamily:"inherit"}}>
-          {expanded?`Show less ↑`:`Show all ${rated.length} ↓`}
+          {expanded?"Show less":`Show all ${rated.length}`}
         </button>
       )}
     </div>
@@ -2735,7 +2735,7 @@ function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail,suggested=[]}){
               {movies.length>0&&(
                 <div style={{marginBottom:28}}>
                   <div style={{padding:"0 20px",marginBottom:14}}>
-                    <SectionLabel>{activeMood?`${activeMood.label} · films`:activeGenre?.id?`${activeGenre.label} movies`:"Popular movies"}</SectionLabel>
+                    <SectionLabel>{activeMood?`${activeMood.label} films`:activeGenre?.id?`${activeGenre.label} movies`:"Popular movies"}</SectionLabel>
                   </div>
                   <div style={{display:"flex",gap:10,overflowX:"auto",padding:"0 20px"}}>
                     {movies.slice(0,12).map(item=>(
@@ -2755,7 +2755,7 @@ function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail,suggested=[]}){
               {series.length>0&&(
                 <div style={{marginBottom:28}}>
                   <div style={{padding:"0 20px",marginBottom:14}}>
-                    <SectionLabel>{activeMood?`${activeMood.label} · series`:activeGenre?.id?`${activeGenre.label} series`:"Popular series"}</SectionLabel>
+                    <SectionLabel>{activeMood?`${activeMood.label} series`:activeGenre?.id?`${activeGenre.label} series`:"Popular series"}</SectionLabel>
                   </div>
                   <div style={{display:"flex",gap:10,overflowX:"auto",padding:"0 20px"}}>
                     {series.slice(0,12).map(item=>(
@@ -3310,7 +3310,7 @@ export default function SeenIt(){
                   <div style={{position:"relative",padding:"18px 20px"}}>
                     <div style={{fontSize:10,fontWeight:800,letterSpacing:2,color:SAGE,textTransform:"uppercase",marginBottom:6}}>Tonight's pick 🎬</div>
                     <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:20,color:"#fff",fontWeight:700,lineHeight:1.2,marginBottom:4}}>{title}</div>
-                    <div style={{fontSize:12,color:"rgba(255,255,255,0.5)",marginBottom:14}}>{pick.media_type==="tv"?"Series":"Film"}{year?" · "+year:""}{pick._meta?.vote_average>0?` · ★ ${pick._meta.vote_average.toFixed(1)}`:""}</div>
+                    <div style={{fontSize:12,color:"rgba(255,255,255,0.5)",marginBottom:14}}>{pick.media_type==="tv"?"Series":"Film"}{year?" "+year:""}{pick._meta?.vote_average>0?" * "+pick._meta.vote_average.toFixed(1):""}</div>
                     <div style={{display:"inline-block",background:"rgba(255,255,255,0.15)",borderRadius:20,padding:"6px 16px",fontSize:12,fontWeight:700,color:"#fff"}}>View →</div>
                   </div>
                 </div>
