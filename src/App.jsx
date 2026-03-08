@@ -845,17 +845,12 @@ function DailyTriviaScreen({onClose,userId,friends=[]}){
   if(phase==="intro") return(
     <div style={{position:"fixed",inset:0,zIndex:400,background:TEXT,display:"flex",flexDirection:"column"}}>
       <button onClick={onClose} style={{position:"absolute",top:20,left:20,background:"rgba(255,255,255,0.12)",border:"none",width:36,height:36,borderRadius:"50%",color:"#fff",fontSize:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
-      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,textAlign:"center"}}>
-        <div style={{fontSize:56,marginBottom:16}}>🎬</div>
-        <div style={{fontSize:11,fontWeight:800,letterSpacing:2,color:SAGE,textTransform:"uppercase",marginBottom:8}}>Daily Trivia</div>
-        <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:30,color:"#fff",lineHeight:1.2,marginBottom:12}}>How well do you know movies?</div>
-        <div style={{fontSize:14,color:"rgba(255,255,255,0.5)",lineHeight:1.6,marginBottom:20}}>10 questions · different type every round · answer fast for bonus points</div>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center",marginBottom:36}}>
-          {Object.entries(QTYPE_ICON).map(([k,icon])=>(
-            <span key={k} style={{background:"rgba(255,255,255,0.1)",borderRadius:20,padding:"6px 14px",fontSize:12,color:"rgba(255,255,255,0.7)",fontWeight:600}}>{icon} {QTYPE_LABEL[k]}</span>
-          ))}
-        </div>
-        <button onClick={()=>{ setPhase("playing"); startQ(); }} style={{background:SAGE,border:"none",borderRadius:16,padding:"16px 56px",color:"#fff",fontWeight:800,fontSize:16,fontFamily:"inherit",cursor:"pointer",boxShadow:"0 4px 24px rgba(122,158,126,0.4)"}}>Let's go</button>
+      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:40,textAlign:"center",gap:16}}>
+        <div style={{fontSize:64}}>🎬</div>
+        <div style={{fontSize:11,fontWeight:800,letterSpacing:2,color:SAGE,textTransform:"uppercase"}}>Daily Trivia</div>
+        <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:34,color:"#fff",lineHeight:1.2}}>How well do you know movies?</div>
+        <div style={{fontSize:14,color:"rgba(255,255,255,0.45)",lineHeight:1.7,maxWidth:280}}>10 questions · answer fast for bonus points · new quiz every day</div>
+        <button onClick={()=>{ setPhase("playing"); startQ(); }} style={{marginTop:16,background:SAGE,border:"none",borderRadius:16,padding:"16px 64px",color:"#fff",fontWeight:800,fontSize:17,fontFamily:"inherit",cursor:"pointer",boxShadow:"0 4px 24px rgba(122,158,126,0.4)"}}>Let's go</button>
       </div>
     </div>
   );
@@ -868,7 +863,7 @@ function DailyTriviaScreen({onClose,userId,friends=[]}){
     return(
       <div style={{position:"fixed",inset:0,zIndex:400,background:BG,display:"flex",flexDirection:"column",overflow:"hidden"}}>
         {/* Header */}
-        <div style={{padding:"14px 20px 10px",flexShrink:0}}>
+        <div style={{padding:"10px 20px 8px",flexShrink:0}}>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
             <button onClick={onClose} style={{background:CARD,border:"none",width:34,height:34,borderRadius:"50%",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:TEXT,flexShrink:0}}>×</button>
             <div style={{flex:1}}>
@@ -954,44 +949,47 @@ function DailyTriviaScreen({onClose,userId,friends=[]}){
   // ── RESULTS ──
   if(phase==="results") return(
     <div style={{position:"fixed",inset:0,zIndex:400,background:BG,display:"flex",flexDirection:"column"}}>
-      <div style={{padding:"16px 20px",display:"flex",alignItems:"center",gap:12,flexShrink:0,borderBottom:`1px solid ${BORDER}`}}>
-        <button onClick={onClose} style={{background:CARD,border:"none",width:36,height:36,borderRadius:"50%",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:TEXT}}>‹</button>
-        <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:18,fontWeight:700,color:TEXT}}>Today's results</div>
+      {/* Score header — always visible */}
+      <div style={{background:TEXT,padding:"20px 20px 16px",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,0.12)",border:"none",width:34,height:34,borderRadius:"50%",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:"#fff",flexShrink:0}}>‹</button>
+          <div style={{fontSize:11,fontWeight:800,letterSpacing:2,color:SAGE,textTransform:"uppercase"}}>Today's results</div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div>
+            <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:56,color:"#fff",fontWeight:700,lineHeight:1}}>{totalScore}</div>
+            <div style={{fontSize:13,color:"rgba(255,255,255,0.5)",marginTop:2}}>{totalCorrect}/10 correct</div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:24,letterSpacing:2,marginBottom:4}}>{finalAnswers.map((a,i)=><span key={i}>{a.correct?"🎬":"💀"}</span>)}</div>
+            <div style={{fontSize:12,color:"rgba(255,255,255,0.4)",fontWeight:600}}>{Math.round((totalCorrect/10)*100)}% accuracy</div>
+          </div>
+        </div>
       </div>
-      <div style={{flex:1,overflowY:"auto",padding:"20px 20px 40px"}}>
-        <div style={{background:TEXT,borderRadius:20,padding:"24px",marginBottom:16,textAlign:"center"}}>
-          <div style={{fontSize:11,fontWeight:800,letterSpacing:2,color:SAGE,textTransform:"uppercase",marginBottom:6}}>Your score</div>
-          <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:60,color:"#fff",fontWeight:700,lineHeight:1}}>{totalScore}</div>
-          <div style={{fontSize:13,color:"rgba(255,255,255,0.5)",marginTop:4}}>{totalCorrect}/10 correct</div>
-          <div style={{fontSize:22,letterSpacing:3,marginTop:14}}>{finalAnswers.map((a,i)=><span key={i}>{a.correct?"🎬":"💀"}</span>)}</div>
-        </div>
-        <div style={{background:CARD,borderRadius:16,padding:"16px",marginBottom:16}}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-            <span style={{fontSize:12,fontWeight:700,color:TEXT2}}>Accuracy</span>
-            <span style={{fontSize:12,fontWeight:700,color:TEXT}}>{Math.round((totalCorrect/10)*100)}%</span>
-          </div>
-          <div style={{height:8,background:BORDER,borderRadius:4}}>
-            <div style={{height:"100%",background:SAGE,borderRadius:4,width:`${(totalCorrect/10)*100}%`}}/>
-          </div>
-        </div>
-        <div style={{marginBottom:16}}>
-          <SectionLabel>Breakdown</SectionLabel>
-          {finalAnswers.map((a,i)=>(
-            <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:`1px solid ${BORDER}`}}>
-              <div style={{width:28,height:28,borderRadius:"50%",background:a.correct?SAGE_LIGHT:"#fdf0ee",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:13}}>{a.correct?"✓":"✗"}</div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:12,color:TEXT,fontWeight:600}}>{QTYPE_ICON[a.type]} {QTYPE_LABEL[a.type]||"Q"}{i+1} · {a.correct?"Correct":"Wrong"}</div>
-                {!a.correct&&<div style={{fontSize:11,color:TEXT3,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Answer: {a.correctAnswer}</div>}
-              </div>
-              <div style={{fontSize:13,fontWeight:700,color:a.correct?SAGE:TEXT3,flexShrink:0}}>+{a.points}</div>
+
+      {/* Scrollable breakdown */}
+      <div style={{flex:1,overflowY:"auto",padding:"16px 20px 8px"}}>
+        {savedResult&&<div style={{background:SAGE_LIGHT,borderRadius:12,padding:"10px 14px",marginBottom:12,textAlign:"center"}}><div style={{fontSize:12,color:SAGE,fontWeight:700}}>Come back tomorrow for a new quiz! 🎬</div></div>}
+        <SectionLabel>Breakdown</SectionLabel>
+        {finalAnswers.map((a,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:`1px solid ${BORDER}`}}>
+            <div style={{width:26,height:26,borderRadius:"50%",background:a.correct?SAGE_LIGHT:"#fdf0ee",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:12}}>{a.correct?"✓":"✗"}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:12,color:TEXT,fontWeight:600}}>{QTYPE_ICON[a.type]} {QTYPE_LABEL[a.type]||"Q"}{i+1}</div>
+              {!a.correct&&<div style={{fontSize:11,color:TEXT3,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>→ {a.correctAnswer}</div>}
             </div>
-          ))}
+            <div style={{fontSize:13,fontWeight:700,color:a.correct?SAGE:TEXT3,flexShrink:0}}>+{a.points}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Action buttons — always pinned at bottom */}
+      <div style={{flexShrink:0,padding:"12px 20px 20px",borderTop:`1px solid ${BORDER}`,background:BG,display:"flex",flexDirection:"column",gap:8}}>
+        <button onClick={()=>doShare(finalAnswers)} style={{width:"100%",background:TEXT,border:"none",borderRadius:14,padding:"14px",color:BG,fontWeight:800,fontSize:15,fontFamily:"inherit",cursor:"pointer"}}>Share my score 🎬</button>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>setSubView("history")} style={{flex:1,background:CARD,border:`1.5px solid ${BORDER}`,borderRadius:14,padding:"12px",color:TEXT,fontWeight:700,fontSize:13,fontFamily:"inherit",cursor:"pointer"}}>📅 History</button>
+          <button onClick={()=>setSubView("leaderboard")} style={{flex:1,background:CARD,border:`1.5px solid ${BORDER}`,borderRadius:14,padding:"12px",color:TEXT,fontWeight:700,fontSize:13,fontFamily:"inherit",cursor:"pointer"}}>🏆 Leaderboard</button>
         </div>
-        {savedResult&&<div style={{background:SAGE_LIGHT,borderRadius:12,padding:"12px 16px",marginBottom:16,textAlign:"center"}}><div style={{fontSize:13,color:SAGE,fontWeight:700}}>Come back tomorrow for a new quiz! 🎬</div></div>}
-        <button onClick={()=>doShare(finalAnswers)} style={{width:"100%",background:TEXT,border:"none",borderRadius:14,padding:"15px",color:BG,fontWeight:800,fontSize:15,fontFamily:"inherit",cursor:"pointer",marginBottom:10}}>Share my score 🎬</button>
-        <button onClick={()=>setSubView("history")} style={{width:"100%",background:CARD,border:`1.5px solid ${BORDER}`,borderRadius:14,padding:"14px",color:TEXT,fontWeight:700,fontSize:14,fontFamily:"inherit",cursor:"pointer",marginBottom:10}}>📅 My history</button>
-        <button onClick={()=>setSubView("leaderboard")} style={{width:"100%",background:CARD,border:`1.5px solid ${BORDER}`,borderRadius:14,padding:"14px",color:TEXT,fontWeight:700,fontSize:14,fontFamily:"inherit",cursor:"pointer",marginBottom:10}}>🏆 Friend leaderboard</button>
-        <button onClick={onClose} style={{width:"100%",background:"none",border:`1.5px solid ${BORDER}`,borderRadius:14,padding:"14px",color:TEXT2,fontWeight:700,fontSize:14,fontFamily:"inherit",cursor:"pointer"}}>Back to app</button>
       </div>
     </div>
   );
@@ -1276,7 +1274,7 @@ function CustomWatchlists({userId,library,onItemPress}){
         <div style={{background:CARD,borderRadius:14,padding:"14px",marginBottom:14,display:"flex",gap:8}}>
           <input autoFocus value={newName} onChange={e=>setNewName(e.target.value)}
             onKeyDown={e=>e.key==="Enter"&&createList()}
-            placeholder="List name e.g. Watch with Da Rents…"
+            placeholder="List name e.g. Watch with Zo…"
             style={{flex:1,background:"transparent",border:"none",fontSize:14,color:TEXT,outline:"none",fontFamily:"inherit"}}/>
           <button onClick={createList} style={{background:TEXT,border:"none",borderRadius:10,padding:"6px 14px",color:BG,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Create</button>
           <button onClick={()=>{setCreating(false);setNewName("");}} style={{background:"none",border:"none",fontSize:18,color:TEXT3,cursor:"pointer"}}>×</button>
@@ -1285,7 +1283,7 @@ function CustomWatchlists({userId,library,onItemPress}){
 
       {lists.length===0&&!creating&&(
         <div style={{textAlign:"center",padding:"24px 0"}}>
-          <div style={{fontSize:13,color:TEXT2,lineHeight:1.6}}>Create lists like "Watch with Da Rents" or<br/>"Guilty Pleasures" to organise your watchlist.</div>
+          <div style={{fontSize:13,color:TEXT2,lineHeight:1.6}}>Create lists like "Watch with Zo" or<br/>"Guilty Pleasures" to organise your watchlist.</div>
         </div>
       )}
 
@@ -1322,8 +1320,8 @@ function TrivPoster({tmdbId,blur,timeLeft,small,compact}){
     if(!tmdbId) return;
     tmdb(`/movie/${tmdbId}`).then(d=>setPath(d.poster_path)).catch(()=>{});
   },[tmdbId]);
-  const w=small?(compact?90:120):(compact?120:150);
-  const h=small?(compact?135:180):(compact?180:225);
+  const w=small?(compact?80:120):(compact?100:150);
+  const h=small?(compact?120:180):(compact?150:225);
   if(!path) return <div style={{width:w,height:h,borderRadius:12,background:CARD}}/>;
   return(
     <img src={IMG(path,"w342")} style={{width:w,height:h,objectFit:"cover",borderRadius:12,display:"block",boxShadow:"0 6px 24px rgba(0,0,0,0.15)",filter:blur&&timeLeft>8?"blur(12px)":blur&&timeLeft>4?"blur(6px)":blur?"blur(2px)":"none",transition:"filter .5s"}} alt=""/>
