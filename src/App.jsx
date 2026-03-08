@@ -3028,24 +3028,26 @@ export default function SeenIt(){
 
             {/* Tonight's Pick — random from watchlist */}
             {watchlist.length>0&&(()=>{
-              // Deterministic daily pick based on date seed
               const seed=todaySeed ? todaySeed() : new Date().getFullYear()*10000+(new Date().getMonth()+1)*100+new Date().getDate();
               const idx=seed%watchlist.length;
               const pick=watchlist[idx];
               const title=pick._meta?.name||pick._meta?.title||"—";
               const year=(pick._meta?.first_air_date||pick._meta?.release_date||"").slice(0,4);
               return(
-                <div style={{margin:"0 20px 28px",background:TEXT,borderRadius:20,overflow:"hidden",cursor:"pointer",position:"relative"}} onClick={()=>setDetail(pick)}>
+                <div key="tonights-pick" style={{margin:"0 20px 28px",background:TEXT,borderRadius:20,overflow:"hidden",cursor:"pointer",position:"relative"}} onClick={()=>setDetail(pick)}>
                   {pick._meta?.backdrop_path&&<img src={IMG(pick._meta.backdrop_path,"w780")} alt={title} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",opacity:0.25}}/>}
                   <div style={{position:"relative",padding:"18px 20px"}}>
-                    <div style={{fontSize:10,fontWeight:800,letterSpacing:2,color:SAGE,textTransform:"uppercase",marginBottom:6}}>Tonight's pick 🎬</div>
+                    <div style={{fontSize:10,fontWeight:800,letterSpacing:2,color:SAGE,textTransform:"uppercase",marginBottom:6}}>Tonight's pick</div>
                     <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:20,color:"#fff",fontWeight:700,lineHeight:1.2,marginBottom:4}}>{title}</div>
                     <div style={{fontSize:12,color:"rgba(255,255,255,0.5)",marginBottom:14}}>{pick.media_type==="tv"?"Series":"Film"}{year?" "+year:""}{pick._meta?.vote_average>0?" * "+pick._meta.vote_average.toFixed(1):""}</div>
-                    <div style={{display:"inline-block",background:"rgba(255,255,255,0.15)",borderRadius:20,padding:"6px 16px",fontSize:12,fontWeight:700,color:"#fff"}}>View →</div>
+                    <div style={{display:"inline-block",background:"rgba(255,255,255,0.15)",borderRadius:20,padding:"6px 16px",fontSize:12,fontWeight:700,color:"#fff"}}>View</div>
                   </div>
                 </div>
               );
             })()}
+
+            {/* Coming up this week */}
+            {upcoming.length>0&&(
               <div style={{marginBottom:28,padding:"0 20px"}}>
                 <SectionLabel>Coming up this week</SectionLabel>
                 {upcoming.map(u=>(
