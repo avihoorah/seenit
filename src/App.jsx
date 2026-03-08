@@ -745,10 +745,30 @@ function DailyTriviaScreen({onClose,userId,friends=[]}){
   const timerRef=useRef(null);
 
   useEffect(()=>{
-    try{ const s=localStorage.getItem(TRIVIA_KEY()); if(s){ setSavedResult(JSON.parse(s)); setPhase("results"); return; } }catch{}
-    const qs=buildTriviaQuestions();
-    setQuestions(qs); setPhase("intro");
-  },[]);
+    const init=async()=>{
+      const dateStr=new Date().toISOString().slice(0,10);
+      // 1. Check localStorage first (instant, works offline)
+      try{
+        const s=localStorage.getItem(TRIVIA_KEY());
+        if(s){ setSavedResult(JSON.parse(s)); setPhase("results"); return; }
+      }catch{}
+      // 2. Check Supabase — catches results from other devices
+      if(userId){
+        try{
+          const {data}=await sb.from("trivia_scores").select("*").eq("user_id",userId).eq("date",dateStr).single();
+          if(data){
+            const result={answers:data.answers||[],total:data.score,correct:data.correct,date:data.created_at||dateStr};
+            try{ localStorage.setItem(TRIVIA_KEY(),JSON.stringify(result)); }catch{}
+            setSavedResult(result); setPhase("results"); return;
+          }
+        }catch{}
+      }
+      // 3. No result found — load quiz
+      const qs=buildTriviaQuestions();
+      setQuestions(qs); setPhase("intro");
+    };
+    init();
+  },[userId]);
 
   useEffect(()=>{
     if(!timerOn) return;
@@ -1244,7 +1264,7 @@ function CustomWatchlists({userId,library,onItemPress}){
         <div style={{background:CARD,borderRadius:14,padding:"14px",marginBottom:14,display:"flex",gap:8}}>
           <input autoFocus value={newName} onChange={e=>setNewName(e.target.value)}
             onKeyDown={e=>e.key==="Enter"&&createList()}
-            placeholder="List name e.g. Watch with Gf…"
+            placeholder="List name e.g. Watch with Rents…"
             style={{flex:1,background:"transparent",border:"none",fontSize:14,color:TEXT,outline:"none",fontFamily:"inherit"}}/>
           <button onClick={createList} style={{background:TEXT,border:"none",borderRadius:10,padding:"6px 14px",color:BG,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Create</button>
           <button onClick={()=>{setCreating(false);setNewName("");}} style={{background:"none",border:"none",fontSize:18,color:TEXT3,cursor:"pointer"}}>×</button>
@@ -1253,7 +1273,7 @@ function CustomWatchlists({userId,library,onItemPress}){
 
       {lists.length===0&&!creating&&(
         <div style={{textAlign:"center",padding:"24px 0"}}>
-          <div style={{fontSize:13,color:TEXT2,lineHeight:1.6}}>Create lists like "Watch with Friends" or<br/>"Guilty Pleasures" to organise your watchlist.</div>
+          <div style={{fontSize:13,color:TEXT2,lineHeight:1.6}}>Create lists like "Watch with Rents" or<br/>"Guilty Pleasures" to organise your watchlist.</div>
         </div>
       )}
 
@@ -1312,7 +1332,19 @@ function FriendsScreen({userId}){
   const [selectedFriend,setSelectedFriend]=useState(null);
   const [sent,setSent]=useState(false);
   const [showTrivia,setShowTrivia]=useState(false);
-  const todayResult=(()=>{ try{ const s=localStorage.getItem(TRIVIA_KEY()); return s?JSON.parse(s):null; }catch{ return null; } })();
+  const [todayResult,setTodayResult]=useState(()=>{ try{ const s=localStorage.getItem(TRIVIA_KEY()); return s?JSON.parse(s):null; }catch{ return null; } });
+  useEffect(()=>{
+    if(todayResult) return; // already have it from localStorage
+    const dateStr=new Date().toISOString().slice(0,10);
+    sb.from("trivia_scores").select("*").eq("user_id",userId).eq("date",dateStr).single()
+      .then(({data})=>{
+        if(data){
+          const r={answers:data.answers||[],total:data.score,correct:data.correct,date:dateStr};
+          try{ localStorage.setItem(TRIVIA_KEY(),JSON.stringify(r)); }catch{}
+          setTodayResult(r);
+        }
+      }).catch(()=>{});
+  },[]);
 
   useEffect(()=>{ loadFriends(); loadRecs(); },[]);
 
