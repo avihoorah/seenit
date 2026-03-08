@@ -231,7 +231,7 @@ function RatingModal({title,onRate,onSkip}){
           ))}
         </div>
         <button onClick={()=>val>0&&onRate(val)} style={{width:"100%",background:val>0?TEXT:CARD,border:"none",borderRadius:12,padding:"13px",color:val>0?BG:TEXT3,fontWeight:800,fontSize:15,fontFamily:"inherit",cursor:val>0?"pointer":"default",marginBottom:10,transition:"all .2s"}}>
-          {val>0?"★".repeat(val) ? `Save ` + "★".repeat(val) : "Tap a star to rate":"Tap a star to rate"}
+          {val>0?"Save "+["","*","**","***","****","*****"][val]:"Tap a star to rate"}
         </button>
         <button onClick={onSkip} style={{background:"none",border:"none",color:TEXT3,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Skip rating</button>
       </div>
