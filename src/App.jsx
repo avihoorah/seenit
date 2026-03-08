@@ -1820,7 +1820,7 @@ function FriendsScreen({userId,myLib=[]}){
                       <div style={{position:"absolute",bottom:-2,right:-2,background:SAGE,borderRadius:20,padding:"1px 5px",fontSize:9,fontWeight:800,color:"#fff",border:`2px solid ${BG}`}}>{score.score}</div>
                     )}
                   </div>
-                  <div style={{flex:1,minWidth:0}} onClick={()=>setViewingFriend(f)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
+                  <div onClick={()=>setViewingFriend(f)} style={{flex:1,minWidth:0,cursor:"pointer"}}>
                     <div style={{fontSize:14,fontWeight:700,color:TEXT}}>{f.display_name||f.username}</div>
                     <div style={{fontSize:11,color:TEXT2}}>@{f.username}</div>
                   </div>
