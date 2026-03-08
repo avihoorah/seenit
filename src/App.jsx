@@ -768,10 +768,16 @@ function DailyTriviaScreen({onClose,userId,friends=[]}){
     const pts=correct?Math.max(10,Math.round((timeLeft/TIME_PER_Q)*100)):0;
     setSelected(opt||"__timeout__");
     const newAnswers=[...answers,{correct,timeLeft:opt?timeLeft:0,points:pts,answer:opt,correctAnswer:q.answer,type:q.type}];
-    setTimeout(()=>{
+    setTimeout(async()=>{
       if(qIdx+1>=questions.length){
-        const result={answers:newAnswers,total:newAnswers.reduce((s,a)=>s+a.points,0),correct:newAnswers.filter(a=>a.correct).length,date:new Date().toISOString()};
+        const total=newAnswers.reduce((s,a)=>s+a.points,0);
+        const correctCount=newAnswers.filter(a=>a.correct).length;
+        const dateStr=new Date().toISOString().slice(0,10);
+        const result={answers:newAnswers,total,correct:correctCount,date:new Date().toISOString()};
         try{ localStorage.setItem(TRIVIA_KEY(),JSON.stringify(result)); }catch{}
+        if(userId){
+          try{ await sb.from("trivia_scores").upsert({user_id:userId,score:total,correct:correctCount,date:dateStr,answers:newAnswers},{onConflict:"user_id,date"}); }catch(e){ console.error("Score save error:",e); }
+        }
         setAnswers(newAnswers); setPhase("results");
       } else {
         setAnswers(newAnswers); setQIdx(i=>i+1); startQ();
@@ -779,17 +785,12 @@ function DailyTriviaScreen({onClose,userId,friends=[]}){
     },1400);
   };
 
-  const doShare=async(ans)=>{
+  const doShare=(ans)=>{
     const _ans=ans||answers;
     const correct=_ans.filter(a=>a.correct).length;
     const total=_ans.reduce((s,a)=>s+a.points,0);
-    const dateStr=new Date().toISOString().slice(0,10);
     const emojis=_ans.map(a=>a.correct?"🎬":"💀").join("");
     const text=`🎬 SeenitTrivia ${new Date().toLocaleDateString("en-GB")}\n${emojis}\n${correct}/10 correct · ${total} pts\nseen-it.online`;
-    // Save score to Supabase so friends can see it on leaderboard
-    if(userId){
-      await sb.from("trivia_scores").upsert({user_id:userId,score:total,correct,date:dateStr,answers:_ans},{onConflict:"user_id,date"});
-    }
     if(navigator.share){ navigator.share({text}); } else { navigator.clipboard?.writeText(text); }
   };
 
@@ -1119,9 +1120,22 @@ function CustomWatchlists({userId,library,onItemPress}){
   };
 
   const createList=async()=>{
-    if(!newName.trim()) return;
-    const {data}=await sb.from("watchlists").insert({user_id:userId,name:newName.trim()}).select().single();
-    if(data){ setLists(p=>[...p,data]); setNewName(""); setCreating(false); }
+    const name=newName.trim();
+    if(!name) return;
+    // Optimistically add to UI immediately, then sync with DB
+    const tempId="temp_"+Date.now();
+    const tempList={id:tempId,name,user_id:userId,created_at:new Date().toISOString()};
+    setLists(p=>[...p,tempList]);
+    setNewName(""); setCreating(false);
+    const {data,error}=await sb.from("watchlists").insert({user_id:userId,name}).select().single();
+    if(data){
+      // Replace temp with real DB record
+      setLists(p=>p.map(l=>l.id===tempId?data:l));
+    } else {
+      // Rollback on error
+      setLists(p=>p.filter(l=>l.id!==tempId));
+      console.error("Create list error:",error);
+    }
   };
 
   const deleteList=async(id)=>{
@@ -1138,10 +1152,18 @@ function CustomWatchlists({userId,library,onItemPress}){
 
   const addItem=async(listId,tmdbId,mediaType)=>{
     const exists=(items[listId]||[]).some(x=>x.tmdb_id===tmdbId);
-    if(exists) return;
-    const {data}=await sb.from("watchlist_items").insert({watchlist_id:listId,tmdb_id:tmdbId,media_type:mediaType}).select().single();
-    if(data) setItems(p=>({...p,[listId]:[...(p[listId]||[]),data]}));
+    if(exists){ setAddingTo(null); setSearch(""); setSearchRes([]); return; }
+    const tempId="temp_"+Date.now();
+    const tempItem={id:tempId,watchlist_id:listId,tmdb_id:tmdbId,media_type:mediaType};
+    setItems(p=>({...p,[listId]:[...(p[listId]||[]),tempItem]}));
     setAddingTo(null); setSearch(""); setSearchRes([]);
+    const {data,error}=await sb.from("watchlist_items").insert({watchlist_id:listId,tmdb_id:tmdbId,media_type:mediaType}).select().single();
+    if(data){
+      setItems(p=>({...p,[listId]:(p[listId]||[]).map(x=>x.id===tempId?data:x)}));
+    } else {
+      setItems(p=>({...p,[listId]:(p[listId]||[]).filter(x=>x.id!==tempId)}));
+      console.error("Add item error:",error);
+    }
   };
 
   // Search library for adding
@@ -1231,7 +1253,7 @@ function CustomWatchlists({userId,library,onItemPress}){
 
       {lists.length===0&&!creating&&(
         <div style={{textAlign:"center",padding:"24px 0"}}>
-          <div style={{fontSize:13,color:TEXT2,lineHeight:1.6}}>Create lists like "Watch with Gf" or<br/>"Guilty Pleasures" to organise your watchlist.</div>
+          <div style={{fontSize:13,color:TEXT2,lineHeight:1.6}}>Create lists like "Watch with Zo" or<br/>"Guilty Pleasures" to organise your watchlist.</div>
         </div>
       )}
 
