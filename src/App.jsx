@@ -1334,18 +1334,26 @@ function FriendsScreen({userId}){
   const [pending,setPending]=useState([]);
   const [recs,setRecs]=useState([]);
   const [recsMeta,setRecsMeta]=useState({});
+  const [activity,setActivity]=useState([]); // friend activity feed
+  const [triviaScores,setTriviaScores]=useState([]); // today's trivia leaderboard
   const [friendSearch,setFriendSearch]=useState("");
   const [friendResult,setFriendResult]=useState(undefined);
   const [searching,setSearching]=useState(false);
+  const [showAddFriend,setShowAddFriend]=useState(false);
+  // rec flow — step by step
+  const [recStep,setRecStep]=useState(null); // null | "friend" | "title" | "note"
+  const [recFriend,setRecFriend]=useState(null);
+  const [recItem,setRecItem]=useState(null);
   const [recQuery,setRecQuery]=useState("");
   const [recSearch,setRecSearch]=useState([]);
   const [recNote,setRecNote]=useState("");
-  const [selectedFriend,setSelectedFriend]=useState(null);
-  const [sent,setSent]=useState(false);
+  const [recSending,setRecSending]=useState(false);
+  const [recSent,setRecSent]=useState(false);
   const [showTrivia,setShowTrivia]=useState(false);
   const [todayResult,setTodayResult]=useState(()=>{ try{ const s=localStorage.getItem(TRIVIA_KEY()); return s?JSON.parse(s):null; }catch{ return null; } });
+
   useEffect(()=>{
-    if(todayResult) return; // already have it from localStorage
+    if(todayResult) return;
     const dateStr=new Date().toISOString().slice(0,10);
     sb.from("trivia_scores").select("*").eq("user_id",userId).eq("date",dateStr).single()
       .then(({data})=>{
@@ -1361,8 +1369,45 @@ function FriendsScreen({userId}){
 
   const loadFriends=async()=>{
     const {data}=await sb.from("friendships").select("*, requester:requester_id(id,username,display_name), addressee:addressee_id(id,username,display_name)").or(`requester_id.eq.${userId},addressee_id.eq.${userId}`);
-    setFriends((data||[]).filter(f=>f.status==="accepted").map(f=>f.requester_id===userId?f.addressee:f.requester));
+    const accepted=(data||[]).filter(f=>f.status==="accepted").map(f=>f.requester_id===userId?f.addressee:f.requester);
+    setFriends(accepted);
     setPending((data||[]).filter(f=>f.status==="pending"&&f.addressee_id===userId).map(f=>({...f.requester,friendship_id:f.id})));
+    if(accepted.length>0){
+      loadActivity(accepted.map(f=>f.id));
+      loadTriviaScores([userId,...accepted.map(f=>f.id)],accepted);
+    }
+  };
+
+  const loadActivity=async(friendIds)=>{
+    // Fetch recent library updates from friends (last 7 days)
+    const since=new Date(Date.now()-7*24*60*60*1000).toISOString();
+    const {data}=await sb.from("library")
+      .select("*, profiles:user_id(username,display_name)")
+      .in("user_id",friendIds)
+      .gte("updated_at",since)
+      .order("updated_at",{ascending:false})
+      .limit(20);
+    // Only show items with meaningful status
+    const feed=(data||[]).filter(item=>(item.lists||[]).some(l=>["Watching","Finished","Dropped"].includes(l)));
+    // Fetch meta for each
+    const withMeta=await Promise.all(feed.slice(0,10).map(async item=>{
+      try{ const m=await fetchMeta(item.tmdb_id,item.media_type); return {...item,_meta:m}; }catch{ return item; }
+    }));
+    setActivity(withMeta);
+  };
+
+  const loadTriviaScores=async(allIds,friendsList)=>{
+    const dateStr=new Date().toISOString().slice(0,10);
+    const {data}=await sb.from("trivia_scores")
+      .select("*, profiles:user_id(username,display_name)")
+      .in("user_id",allIds)
+      .eq("date",dateStr)
+      .order("score",{ascending:false});
+    setTriviaScores((data||[]).map(s=>({
+      ...s,
+      name:s.profiles?.display_name||s.profiles?.username||"?",
+      isMe:s.user_id===userId,
+    })));
   };
 
   const loadRecs=async()=>{
@@ -1381,7 +1426,7 @@ function FriendsScreen({userId}){
 
   const sendRequest=async(id)=>{
     await sb.from("friendships").insert({requester_id:userId,addressee_id:id});
-    setFriendResult(undefined); setFriendSearch("");
+    setFriendResult(undefined); setFriendSearch(""); setShowAddFriend(false);
   };
 
   const acceptRequest=async(fid)=>{ await sb.from("friendships").update({status:"accepted"}).eq("id",fid); loadFriends(); };
@@ -1392,11 +1437,12 @@ function FriendsScreen({userId}){
     return()=>clearTimeout(t);
   },[recQuery]);
 
-  const sendRec=async(item)=>{
-    if(!selectedFriend) return;
-    await sb.from("recommendations").insert({from_user_id:userId,to_user_id:selectedFriend.id,tmdb_id:item.id,media_type:item.media_type,note:recNote});
-    setRecQuery(""); setRecNote(""); setRecSearch([]); setSent(true);
-    setTimeout(()=>setSent(false),3000);
+  const confirmSendRec=async()=>{
+    if(!recFriend||!recItem) return;
+    setRecSending(true);
+    await sb.from("recommendations").insert({from_user_id:userId,to_user_id:recFriend.id,tmdb_id:recItem.id,media_type:recItem.media_type||"movie",note:recNote});
+    setRecSending(false); setRecSent(true);
+    setTimeout(()=>{ setRecSent(false); setRecStep(null); setRecFriend(null); setRecItem(null); setRecNote(""); setRecQuery(""); },2500);
   };
 
   const handleRec=async(recId,status)=>{
@@ -1404,100 +1450,162 @@ function FriendsScreen({userId}){
     setRecs(p=>p.filter(r=>r.id!==recId));
   };
 
+  const medals=["🥇","🥈","🥉"];
+
+  const timeAgo=(iso)=>{
+    const diff=(Date.now()-new Date(iso))/1000;
+    if(diff<3600) return `${Math.floor(diff/60)}m ago`;
+    if(diff<86400) return `${Math.floor(diff/3600)}h ago`;
+    return `${Math.floor(diff/86400)}d ago`;
+  };
+
+  const activityVerb=(lists)=>{
+    if((lists||[]).includes("Finished")) return{verb:"finished",color:"#E65100",bg:"#FFF3E0"};
+    if((lists||[]).includes("Watching")) return{verb:"started watching",color:SAGE,bg:SAGE_LIGHT};
+    if((lists||[]).includes("Dropped")) return{verb:"dropped",color:"#9B4444",bg:"#F5F0F0"};
+    return{verb:"added",color:TEXT2,bg:CARD};
+  };
+
   return(
     <div style={{padding:"0 20px 100px"}}>
-      {showTrivia&&<DailyTriviaScreen onClose={()=>setShowTrivia(false)}/>}
+      {showTrivia&&<DailyTriviaScreen onClose={()=>{ setShowTrivia(false); loadTriviaScores([userId,...friends.map(f=>f.id)],friends); }} userId={userId} friends={friends}/>}
 
-      {/* Daily Trivia Card */}
-      <div onClick={()=>setShowTrivia(true)} style={{background:TEXT,borderRadius:20,padding:"20px",marginBottom:24,cursor:"pointer",position:"relative",overflow:"hidden"}}>
+      {/* ── Daily Trivia Card ── */}
+      <div onClick={()=>setShowTrivia(true)} style={{background:TEXT,borderRadius:20,padding:"20px",marginBottom:20,cursor:"pointer",position:"relative",overflow:"hidden"}}>
         <div style={{position:"absolute",right:-8,top:-8,fontSize:72,opacity:0.07,lineHeight:1,pointerEvents:"none"}}>🎬</div>
         <div style={{fontSize:10,fontWeight:800,letterSpacing:2,color:SAGE,textTransform:"uppercase",marginBottom:5}}>Daily Trivia</div>
         <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:22,color:"#fff",marginBottom:8,lineHeight:1.2}}>
           {todayResult?"See today's results":"Today's quiz is live"}
         </div>
         {todayResult?(
-          <div>
-            <div style={{fontSize:20,letterSpacing:3,marginBottom:6}}>{(todayResult.answers||[]).map((a,i)=><span key={i}>{a.correct?"🎬":"💀"}</span>)}</div>
-            <div style={{fontSize:13,color:"rgba(255,255,255,0.5)"}}>{todayResult.correct}/10 correct · {todayResult.total} pts</div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div>
+              <div style={{fontSize:18,letterSpacing:2,marginBottom:3}}>{(todayResult.answers||[]).map((a,i)=><span key={i}>{a.correct?"🎬":"💀"}</span>)}</div>
+              <div style={{fontSize:12,color:"rgba(255,255,255,0.5)"}}>{todayResult.correct}/10 correct · {todayResult.total} pts</div>
+            </div>
+            <div style={{background:"rgba(255,255,255,0.1)",borderRadius:12,padding:"8px 14px",textAlign:"center"}}>
+              <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:24,color:"#fff",fontWeight:700,lineHeight:1}}>{todayResult.total}</div>
+              <div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginTop:2}}>pts</div>
+            </div>
           </div>
         ):(
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
-            <div style={{fontSize:13,color:"rgba(255,255,255,0.5)"}}>10 questions · all different types · resets daily</div>
-            <div style={{background:SAGE,borderRadius:20,padding:"7px 16px",fontSize:12,fontWeight:800,color:"#fff",flexShrink:0,whiteSpace:"nowrap"}}>Play →</div>
+            <div style={{fontSize:13,color:"rgba(255,255,255,0.5)"}}>10 questions · resets daily</div>
+            <div style={{background:SAGE,borderRadius:20,padding:"7px 16px",fontSize:12,fontWeight:800,color:"#fff",flexShrink:0}}>Play →</div>
           </div>
         )}
       </div>
 
+      {/* ── Today's Trivia Leaderboard ── */}
+      {triviaScores.length>0&&(
+        <div style={{background:CARD,borderRadius:16,padding:"14px 16px",marginBottom:20}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{fontSize:10,fontWeight:800,letterSpacing:2,color:TEXT3,textTransform:"uppercase"}}>Today's leaderboard</div>
+            <div style={{fontSize:11,color:TEXT3}}>{new Date().toLocaleDateString("en-GB",{day:"numeric",month:"short"})}</div>
+          </div>
+          {triviaScores.map((s,i)=>(
+            <div key={s.user_id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:i<triviaScores.length-1?`1px solid ${BORDER}`:"none"}}>
+              <div style={{fontSize:16,width:24,textAlign:"center",flexShrink:0}}>{medals[i]||`${i+1}`}</div>
+              <Av name={s.name} size={28}/>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:700,color:s.isMe?SAGE:TEXT}}>{s.name}{s.isMe?" (you)":""}</div>
+                <div style={{fontSize:11,color:TEXT3}}>{s.correct}/10 correct</div>
+              </div>
+              <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:18,fontWeight:700,color:s.isMe?SAGE:TEXT}}>{s.score}</div>
+            </div>
+          ))}
+          {!todayResult&&<div style={{marginTop:10,textAlign:"center"}}><button onClick={()=>setShowTrivia(true)} style={{background:TEXT,border:"none",borderRadius:10,padding:"8px 20px",color:BG,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Play to join →</button></div>}
+        </div>
+      )}
+
+      {/* ── Friend requests ── */}
       {pending.length>0&&(
-        <div style={{marginBottom:24}}>
-          <SectionLabel>Friend requests</SectionLabel>
+        <div style={{marginBottom:20}}>
+          <SectionLabel>Friend requests ({pending.length})</SectionLabel>
           {pending.map(p=>(
-            <div key={p.id} style={{display:"flex",gap:12,alignItems:"center",padding:"12px 0",borderBottom:`1px solid ${BORDER}`}}>
-              <Av name={p.display_name||p.username} size={42}/>
+            <div key={p.id} style={{display:"flex",gap:12,alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${BORDER}`}}>
+              <Av name={p.display_name||p.username} size={40}/>
               <div style={{flex:1}}>
                 <div style={{fontSize:14,fontWeight:700,color:TEXT}}>{p.display_name||p.username}</div>
                 <div style={{fontSize:12,color:TEXT2}}>@{p.username}</div>
               </div>
-              <button onClick={()=>acceptRequest(p.friendship_id)} style={{background:SAGE,border:"none",borderRadius:8,padding:"8px 16px",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Accept</button>
+              <button onClick={()=>acceptRequest(p.friendship_id)} style={{background:SAGE,border:"none",borderRadius:8,padding:"7px 14px",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Accept</button>
             </div>
           ))}
         </div>
       )}
-      <div style={{marginBottom:24}}>
-        <SectionLabel>Your people ({friends.length})</SectionLabel>
-        {friends.length===0&&<p style={{fontSize:13,color:TEXT3,marginBottom:14}}>Add friends below to share what you're watching.</p>}
+
+      {/* ── Your people ── */}
+      <div style={{marginBottom:20}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <SectionLabel style={{marginBottom:0}}>Your people ({friends.length})</SectionLabel>
+          <button onClick={()=>setShowAddFriend(v=>!v)} style={{background:TEXT,border:"none",borderRadius:20,padding:"5px 14px",color:BG,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>+ Add</button>
+        </div>
+        {friends.length===0&&!showAddFriend&&<p style={{fontSize:13,color:TEXT3,marginBottom:12}}>Add friends to see what they're watching.</p>}
         {friends.length>0&&(
-          <div style={{display:"flex",gap:16,overflowX:"auto",paddingBottom:4}}>
+          <div style={{display:"flex",gap:14,overflowX:"auto",paddingBottom:4}}>
             {friends.map(f=>(
-              <div key={f.id} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6,flexShrink:0}}>
-                <Av name={f.display_name||f.username} size={52}/>
-                <div style={{fontSize:12,fontWeight:700,color:TEXT}}>{f.display_name||f.username}</div>
-                <div style={{fontSize:10,color:TEXT3}}>@{f.username}</div>
+              <div key={f.id} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,flexShrink:0}}>
+                <div style={{position:"relative"}}>
+                  <Av name={f.display_name||f.username} size={48}/>
+                  {triviaScores.find(s=>s.user_id===f.id)&&(
+                    <div style={{position:"absolute",bottom:-2,right:-2,background:SAGE,borderRadius:20,padding:"1px 5px",fontSize:9,fontWeight:800,color:"#fff",border:`2px solid ${BG}`}}>
+                      {triviaScores.find(s=>s.user_id===f.id)?.score}
+                    </div>
+                  )}
+                </div>
+                <div style={{fontSize:11,fontWeight:700,color:TEXT,maxWidth:52,textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.display_name||f.username}</div>
               </div>
             ))}
           </div>
         )}
-      </div>
-      <div style={{background:CARD,borderRadius:16,padding:16,marginBottom:24}}>
-        <div style={{fontSize:13,fontWeight:700,color:TEXT,marginBottom:10}}>Add a friend by username</div>
-        <div style={{display:"flex",gap:8}}>
-          <input value={friendSearch} onChange={e=>setFriendSearch(e.target.value)} onKeyDown={e=>e.key==="Enter"&&searchFriend()} placeholder="e.g. emilesmith"
-            style={{flex:1,background:BG,border:"none",borderRadius:8,padding:"10px 13px",fontSize:13,fontFamily:"inherit",color:TEXT,outline:"none"}}/>
-          <button onClick={searchFriend} disabled={searching} style={{background:TEXT,border:"none",borderRadius:8,padding:"10px 16px",color:BG,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{searching?"…":"Find"}</button>
-        </div>
-        {friendResult===null&&<div style={{fontSize:13,color:TEXT3,marginTop:10}}>No user found with that username.</div>}
-        {friendResult&&friendResult.id&&(
-          <div style={{marginTop:12,display:"flex",gap:12,alignItems:"center"}}>
-            <Av name={friendResult.display_name||friendResult.username} size={40}/>
-            <div style={{flex:1}}>
-              <div style={{fontSize:14,fontWeight:700,color:TEXT}}>{friendResult.display_name||friendResult.username}</div>
-              <div style={{fontSize:12,color:TEXT2}}>@{friendResult.username}</div>
+
+        {/* Add friend panel */}
+        {showAddFriend&&(
+          <div style={{background:CARD,borderRadius:14,padding:"14px",marginTop:12}}>
+            <div style={{fontSize:12,fontWeight:700,color:TEXT,marginBottom:8}}>Search by username</div>
+            <div style={{display:"flex",gap:8}}>
+              <input value={friendSearch} onChange={e=>setFriendSearch(e.target.value)} onKeyDown={e=>e.key==="Enter"&&searchFriend()} placeholder="e.g. emilesmith" autoFocus
+                style={{flex:1,background:BG,border:"none",borderRadius:8,padding:"10px 13px",fontSize:13,fontFamily:"inherit",color:TEXT,outline:"none"}}/>
+              <button onClick={searchFriend} disabled={searching} style={{background:TEXT,border:"none",borderRadius:8,padding:"10px 16px",color:BG,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{searching?"…":"Find"}</button>
             </div>
-            <button onClick={()=>sendRequest(friendResult.id)} style={{background:SAGE,border:"none",borderRadius:8,padding:"8px 14px",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>+ Add</button>
+            {friendResult===null&&<div style={{fontSize:13,color:TEXT3,marginTop:8}}>No user found.</div>}
+            {friendResult?.id&&(
+              <div style={{marginTop:10,display:"flex",gap:10,alignItems:"center"}}>
+                <Av name={friendResult.display_name||friendResult.username} size={36}/>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:700,color:TEXT}}>{friendResult.display_name||friendResult.username}</div>
+                  <div style={{fontSize:11,color:TEXT2}}>@{friendResult.username}</div>
+                </div>
+                <button onClick={()=>sendRequest(friendResult.id)} style={{background:SAGE,border:"none",borderRadius:8,padding:"7px 14px",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>+ Add</button>
+              </div>
+            )}
           </div>
         )}
       </div>
+
+      {/* ── Recs for you ── */}
       {recs.length>0&&(
-        <div style={{marginBottom:24}}>
-          <SectionLabel>Recommended for you</SectionLabel>
+        <div style={{marginBottom:20}}>
+          <SectionLabel>Recommended for you 🎁</SectionLabel>
           {recs.map(rec=>{
             const meta=recsMeta[rec.tmdb_id];
             const title=meta?.name||meta?.title||"Loading…";
             return(
-              <div key={rec.id} style={{background:CARD,borderRadius:16,padding:16,marginBottom:10}}>
-                <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:12}}>
-                  <Av name={rec.from_user?.display_name||rec.from_user?.username} size={28}/>
-                  <span style={{fontSize:13,fontWeight:700,color:TEXT}}>{rec.from_user?.display_name||rec.from_user?.username}</span>
-                  <span style={{fontSize:12,color:TEXT2}}>recommends</span>
+              <div key={rec.id} style={{background:CARD,borderRadius:16,padding:14,marginBottom:10}}>
+                <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10}}>
+                  <Av name={rec.from_user?.display_name||rec.from_user?.username} size={24}/>
+                  <span style={{fontSize:12,fontWeight:700,color:TEXT}}>{rec.from_user?.display_name||rec.from_user?.username}</span>
+                  <span style={{fontSize:12,color:TEXT2}}>thinks you'd love</span>
                 </div>
-                <div style={{display:"flex",gap:14}}>
-                  <Poster path={meta?.poster_path} title={title} w={54} radius={8}/>
+                <div style={{display:"flex",gap:12}}>
+                  <Poster path={meta?.poster_path} title={title} w={52} radius={8}/>
                   <div style={{flex:1}}>
-                    <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:17,fontWeight:700,color:TEXT,marginBottom:4}}>{title}</div>
-                    {rec.note&&<p style={{fontSize:13,color:TEXT2,fontStyle:"italic",lineHeight:1.5,margin:"0 0 10px"}}>"{rec.note}"</p>}
-                    <div style={{display:"flex",gap:8}}>
-                      <button onClick={()=>handleRec(rec.id,"added")} style={{background:TEXT,border:"none",borderRadius:8,padding:"7px 16px",color:BG,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>+ Watchlist</button>
-                      <button onClick={()=>handleRec(rec.id,"skipped")} style={{background:"transparent",border:`1.5px solid ${BORDER}`,borderRadius:8,padding:"7px 14px",color:TEXT2,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Skip</button>
+                    <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:16,fontWeight:700,color:TEXT,marginBottom:3,lineHeight:1.2}}>{title}</div>
+                    {rec.note&&<p style={{fontSize:12,color:TEXT2,fontStyle:"italic",lineHeight:1.5,margin:"0 0 8px"}}>"{rec.note}"</p>}
+                    <div style={{display:"flex",gap:7}}>
+                      <button onClick={()=>handleRec(rec.id,"added")} style={{background:TEXT,border:"none",borderRadius:8,padding:"6px 14px",color:BG,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>+ Watchlist</button>
+                      <button onClick={()=>handleRec(rec.id,"skipped")} style={{background:"transparent",border:`1.5px solid ${BORDER}`,borderRadius:8,padding:"6px 12px",color:TEXT2,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Skip</button>
                     </div>
                   </div>
                 </div>
@@ -1506,45 +1614,129 @@ function FriendsScreen({userId}){
           })}
         </div>
       )}
-      <div>
-        <SectionLabel>Send a recommendation</SectionLabel>
-        <div style={{background:CARD,borderRadius:16,padding:16}}>
-          {friends.length===0&&<div style={{fontSize:13,color:TEXT3,marginBottom:10}}>Add friends first</div>}
-          {friends.length>0&&(
-            <>
-              <div style={{fontSize:12,color:TEXT2,marginBottom:8}}>Send to:</div>
-              <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
-                {friends.map(f=>(
-                  <div key={f.id} onClick={()=>setSelectedFriend(selectedFriend?.id===f.id?null:f)}
-                    style={{cursor:"pointer",opacity:selectedFriend&&selectedFriend.id!==f.id?0.35:1,transition:"opacity .15s"}}>
-                    <Av name={f.display_name||f.username} size={42}/>
+
+      {/* ── Activity feed ── */}
+      {activity.length>0&&(
+        <div style={{marginBottom:20}}>
+          <SectionLabel>What your people are watching</SectionLabel>
+          {activity.map((item,i)=>{
+            const title=item._meta?.name||item._meta?.title||"—";
+            const {verb,color,bg}=activityVerb(item.lists);
+            const name=item.profiles?.display_name||item.profiles?.username||"?";
+            return(
+              <div key={item.id} style={{display:"flex",gap:12,alignItems:"center",padding:"10px 0",borderBottom:i<activity.length-1?`1px solid ${BORDER}`:"none"}}>
+                <Av name={name} size={36}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,color:TEXT,lineHeight:1.4}}>
+                    <span style={{fontWeight:700}}>{name}</span>
+                    <span style={{color:TEXT2}}> {verb} </span>
+                    <span style={{fontWeight:700}}>{title}</span>
                   </div>
-                ))}
-              </div>
-              <input value={recQuery} onChange={e=>setRecQuery(e.target.value)} placeholder="Search what to recommend…"
-                style={{width:"100%",background:BG,border:"none",borderRadius:8,padding:"10px 13px",fontSize:13,fontFamily:"inherit",color:TEXT,marginBottom:8,boxSizing:"border-box",outline:"none"}}/>
-              {recSearch.length>0&&(
-                <div style={{background:BG,borderRadius:8,marginBottom:8,overflow:"hidden"}}>
-                  {recSearch.slice(0,4).map(r=>(
-                    <div key={r.id} onClick={()=>sendRec(r)}
-                      style={{display:"flex",gap:10,padding:"10px 12px",cursor:"pointer",borderBottom:`1px solid ${BORDER}`}}
-                      onMouseEnter={e=>e.currentTarget.style.background=CARD}
-                      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                      <Poster path={r.poster_path} title={r.title||r.name} w={30} radius={4}/>
-                      <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"center"}}>
-                        <div style={{fontSize:13,fontWeight:600,color:TEXT}}>{r.title||r.name}</div>
-                        <div style={{fontSize:11,color:TEXT2}}>{r.media_type==="tv"?"Series":"Film"}</div>
-                      </div>
-                    </div>
-                  ))}
+                  <div style={{display:"flex",gap:6,alignItems:"center",marginTop:3}}>
+                    <span style={{fontSize:10,fontWeight:700,color,background:bg,padding:"2px 7px",borderRadius:6}}>{verb}</span>
+                    {item.rating&&<span style={{fontSize:10,color:TEXT3}}>★ {item.rating}</span>}
+                    <span style={{fontSize:10,color:TEXT3}}>{timeAgo(item.updated_at)}</span>
+                  </div>
                 </div>
-              )}
-              <textarea value={recNote} onChange={e=>setRecNote(e.target.value)} rows={2} placeholder="Why they'll love it…"
-                style={{width:"100%",background:BG,border:"none",borderRadius:8,padding:"10px 13px",fontSize:13,fontFamily:"inherit",color:TEXT,resize:"none",boxSizing:"border-box",outline:"none"}}/>
-              {sent&&<div style={{fontSize:13,color:SAGE,marginTop:8,fontWeight:600}}>Sent! ✓</div>}
-            </>
-          )}
+                <Poster path={item._meta?.poster_path} title={title} w={38} radius={6}/>
+              </div>
+            );
+          })}
         </div>
+      )}
+
+      {/* ── Send a rec — step-by-step flow ── */}
+      <div style={{marginBottom:20}}>
+        <SectionLabel>Send a recommendation</SectionLabel>
+        {friends.length===0?(
+          <div style={{background:CARD,borderRadius:16,padding:"18px",textAlign:"center"}}>
+            <div style={{fontSize:28,marginBottom:8}}>👥</div>
+            <div style={{fontSize:13,color:TEXT2}}>Add friends first to send them picks</div>
+          </div>
+        ):(
+          <div style={{background:CARD,borderRadius:16,padding:14}}>
+            {recSent?(
+              <div style={{textAlign:"center",padding:"12px 0"}}>
+                <div style={{fontSize:28,marginBottom:6}}>🎬</div>
+                <div style={{fontSize:14,fontWeight:700,color:TEXT}}>Sent!</div>
+                <div style={{fontSize:12,color:TEXT2,marginTop:3}}>They're going to love it.</div>
+              </div>
+            ):(
+              <>
+                {/* Step 1 — pick friend */}
+                <div style={{marginBottom:12}}>
+                  <div style={{fontSize:11,fontWeight:700,color:TEXT3,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Send to</div>
+                  <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                    {friends.map(f=>{
+                      const sel=recFriend?.id===f.id;
+                      return(
+                        <div key={f.id} onClick={()=>setRecFriend(sel?null:f)}
+                          style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer"}}>
+                          <div style={{border:`2px solid ${sel?SAGE:"transparent"}`,borderRadius:"50%",padding:2,transition:"border .15s"}}>
+                            <Av name={f.display_name||f.username} size={40}/>
+                          </div>
+                          <div style={{fontSize:10,fontWeight:sel?700:500,color:sel?SAGE:TEXT2,maxWidth:48,textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.display_name||f.username}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Step 2 — pick title */}
+                {recFriend&&(
+                  <div style={{marginBottom:12}}>
+                    <div style={{fontSize:11,fontWeight:700,color:TEXT3,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>What to recommend</div>
+                    {recItem?(
+                      <div style={{display:"flex",gap:10,alignItems:"center",background:BG,borderRadius:10,padding:"8px 10px"}}>
+                        <Poster path={recItem.poster_path} title={recItem.title||recItem.name} w={32} radius={4}/>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:13,fontWeight:700,color:TEXT}}>{recItem.title||recItem.name}</div>
+                          <div style={{fontSize:11,color:TEXT2}}>{recItem.media_type==="tv"?"Series":"Film"}</div>
+                        </div>
+                        <button onClick={()=>{ setRecItem(null); setRecQuery(""); }} style={{background:"none",border:"none",fontSize:16,color:TEXT3,cursor:"pointer"}}>×</button>
+                      </div>
+                    ):(
+                      <>
+                        <input value={recQuery} onChange={e=>setRecQuery(e.target.value)} placeholder="Search a film or series…"
+                          style={{width:"100%",background:BG,border:"none",borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"inherit",color:TEXT,boxSizing:"border-box",outline:"none"}}/>
+                        {recSearch.length>0&&(
+                          <div style={{background:BG,borderRadius:8,marginTop:4,overflow:"hidden",border:`1px solid ${BORDER}`}}>
+                            {recSearch.slice(0,5).map(r=>(
+                              <div key={r.id} onClick={()=>{ setRecItem(r); setRecSearch([]); }}
+                                style={{display:"flex",gap:10,padding:"9px 12px",cursor:"pointer",borderBottom:`1px solid ${BORDER}`,alignItems:"center"}}
+                                onMouseEnter={e=>e.currentTarget.style.background=CARD}
+                                onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                                <Poster path={r.poster_path} title={r.title||r.name} w={28} radius={4}/>
+                                <div style={{flex:1}}>
+                                  <div style={{fontSize:13,fontWeight:600,color:TEXT}}>{r.title||r.name}</div>
+                                  <div style={{fontSize:11,color:TEXT2}}>{r.media_type==="tv"?"Series":"Film"}</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Step 3 — note + send */}
+                {recFriend&&recItem&&(
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,color:TEXT3,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Add a note (optional)</div>
+                    <textarea value={recNote} onChange={e=>setRecNote(e.target.value)} rows={2}
+                      placeholder="Why they'll love it…"
+                      style={{width:"100%",background:BG,border:"none",borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"inherit",color:TEXT,resize:"none",boxSizing:"border-box",outline:"none",marginBottom:10}}/>
+                    <button onClick={confirmSendRec} disabled={recSending}
+                      style={{width:"100%",background:SAGE,border:"none",borderRadius:10,padding:"12px",color:"#fff",fontWeight:800,fontSize:14,fontFamily:"inherit",cursor:recSending?"default":"pointer",opacity:recSending?0.7:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                      {recSending?<Spin size={16}/>:`Send to ${recFriend.display_name||recFriend.username} 🎬`}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1738,6 +1930,17 @@ const GENRES=[
   {id:10749,label:"Romance"},{id:99,label:"Documentary"},{id:16,label:"Animation"},{id:80,label:"Crime"},
 ];
 
+const MOODS=[
+  {id:"laugh",  emoji:"😂", label:"Need a laugh",      movieGenres:[35],      tvGenres:[35],      sort:"popularity.desc"},
+  {id:"cry",    emoji:"😭", label:"Have a good cry",   movieGenres:[18,10749],tvGenres:[18],      sort:"vote_average.desc"},
+  {id:"scared", emoji:"😱", label:"Want a scare",      movieGenres:[27,53],   tvGenres:[27],      sort:"popularity.desc"},
+  {id:"mindblown",emoji:"🤯",label:"Blow my mind",     movieGenres:[878,9648],tvGenres:[878],     sort:"vote_average.desc"},
+  {id:"date",   emoji:"❤️", label:"Date night",        movieGenres:[10749,35],tvGenres:[10749],   sort:"popularity.desc"},
+  {id:"smart",  emoji:"🧠", label:"Something smart",   movieGenres:[99,18],   tvGenres:[99],      sort:"vote_average.desc"},
+  {id:"easy",   emoji:"😌", label:"Easy watching",     movieGenres:[16,35],   tvGenres:[35,16],   sort:"popularity.desc"},
+  {id:"dark",   emoji:"🌑", label:"Dark & twisted",    movieGenres:[80,53,27],tvGenres:[80,53],   sort:"vote_average.desc"},
+];
+
 function TrendingCarousel({items,onPreview,onAdd}){
   const [idx,setIdx]=useState(0);
   const trackRef=useRef();
@@ -1820,7 +2023,9 @@ function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail,suggested=[]}){
   const [searchRes,setSearchRes]=useState([]);
   const [searching,setSearching]=useState(false);
   const [activeGenre,setActiveGenre]=useState(GENRES[0]);
+  const [activeMood,setActiveMood]=useState(null);
   const [genreData,setGenreData]=useState(null);
+  const [moodData,setMoodData]=useState(null);
   const [genreLoading,setGenreLoading]=useState(false);
   const [preview,setPreview]=useState(null);
   const searchRef=useRef();
@@ -1846,9 +2051,10 @@ function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail,suggested=[]}){
 
   // Genre filter
   const handleGenre=async(genre)=>{
-    if(activeGenre?.id===genre.id){ return; } // already selected
+    if(activeGenre?.id===genre.id&&!activeMood){ return; }
+    setActiveMood(null); setMoodData(null);
     setActiveGenre(genre);
-    if(genre.id===null){ setGenreData(null); return; } // Popular = show trending
+    if(genre.id===null){ setGenreData(null); return; }
     setGenreLoading(true);
     try{
       const [movies,series]=await Promise.all([
@@ -1856,6 +2062,20 @@ function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail,suggested=[]}){
         tmdb(`/discover/tv?with_genres=${genre.id}&sort_by=popularity.desc`),
       ]);
       setGenreData({movies:(movies.results||[]).slice(0,20),series:(series.results||[]).slice(0,20)});
+    }catch{}
+    setGenreLoading(false);
+  };
+
+  const handleMood=async(mood)=>{
+    if(activeMood?.id===mood.id){ setActiveMood(null); setMoodData(null); return; }
+    setActiveMood(mood); setActiveGenre(GENRES[0]); setGenreData(null);
+    setGenreLoading(true);
+    try{
+      const [movies,series]=await Promise.all([
+        tmdb(`/discover/movie?with_genres=${mood.movieGenres.join(",")}&sort_by=${mood.sort}&vote_count.gte=200`),
+        tmdb(`/discover/tv?with_genres=${mood.tvGenres.join(",")}&sort_by=${mood.sort}&vote_count.gte=100`),
+      ]);
+      setMoodData({movies:(movies.results||[]).slice(0,15),series:(series.results||[]).slice(0,15)});
     }catch{}
     setGenreLoading(false);
   };
@@ -1868,9 +2088,9 @@ function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail,suggested=[]}){
   if(loading) return <div style={{display:"flex",justifyContent:"center",padding:"60px 0"}}><Spin/></div>;
 
   const featured=(data.featured||[]).filter(i=>!libIds.has(i.id));
-  const isPopular=activeGenre?.id===null;
-  const moviesRaw=isPopular?data.movies:genreData?.movies;
-  const seriesRaw=isPopular?data.series:genreData?.series;
+  const isPopular=activeGenre?.id===null&&!activeMood;
+  const moviesRaw=activeMood?moodData?.movies:isPopular?data.movies:genreData?.movies;
+  const seriesRaw=activeMood?moodData?.series:isPopular?data.series:genreData?.series;
   const movies=(moviesRaw||[]).filter(i=>!libIds.has(i.id));
   const series=(seriesRaw||[]).filter(i=>!libIds.has(i.id));
   const isSearching=q.length>=2;
@@ -1914,16 +2134,33 @@ function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail,suggested=[]}){
         </div>
       )}
 
-      {/* Trending content — hidden while searching */}
+      {/* Main browse content — hidden while searching */}
       {!isSearching&&(
         <>
-          {/* Genre pills */}
+          {/* ── Mood vibes ── */}
+          <div style={{padding:"0 20px",marginBottom:16}}>
+            <div style={{fontSize:10,fontWeight:800,letterSpacing:2,color:TEXT3,textTransform:"uppercase",marginBottom:10}}>How are you feeling?</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              {MOODS.map(mood=>{
+                const active=activeMood?.id===mood.id;
+                return(
+                  <button key={mood.id} onClick={()=>handleMood(mood)}
+                    style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",borderRadius:14,border:`1.5px solid ${active?SAGE:BORDER}`,background:active?SAGE_LIGHT:"transparent",cursor:"pointer",fontFamily:"inherit",transition:"all .15s",textAlign:"left"}}>
+                    <span style={{fontSize:20,flexShrink:0}}>{mood.emoji}</span>
+                    <span style={{fontSize:12,fontWeight:700,color:active?SAGE:TEXT,lineHeight:1.3}}>{mood.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ── Genre pills ── */}
           <div style={{display:"flex",gap:8,padding:"0 20px",marginBottom:20,overflowX:"auto"}}>
             {GENRES.map(g=>{
-              const active=activeGenre?.id===g.id;
+              const active=activeGenre?.id===g.id&&!activeMood;
               return(
                 <button key={g.id} onClick={()=>handleGenre(g)}
-                  style={{flexShrink:0,padding:"6px 14px",borderRadius:20,border:`1.5px solid ${active?SAGE:BORDER}`,background:active?SAGE:"transparent",color:active?"#fff":TEXT2,fontFamily:"inherit",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s"}}>
+                  style={{flexShrink:0,padding:"6px 14px",borderRadius:20,border:`1.5px solid ${active?TEXT:BORDER}`,background:active?TEXT:"transparent",color:active?"#fff":TEXT2,fontFamily:"inherit",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",transition:"all .15s"}}>
                   {g.label}
                 </button>
               );
@@ -1934,6 +2171,14 @@ function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail,suggested=[]}){
 
           {!genreLoading&&(
             <>
+              {/* Mood header */}
+              {activeMood&&(
+                <div style={{padding:"0 20px",marginBottom:16}}>
+                  <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:20,color:TEXT,fontWeight:700}}>{activeMood.emoji} {activeMood.label}</div>
+                  <div style={{fontSize:12,color:TEXT2,marginTop:2}}>Picked for the vibe</div>
+                </div>
+              )}
+
               {/* Trending carousel — only on Popular */}
               {isPopular&&featured.length>0&&(
                 <TrendingCarousel items={featured} onPreview={setPreview} onAdd={handleAdd}/>
@@ -1943,10 +2188,10 @@ function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail,suggested=[]}){
               {movies.length>0&&(
                 <div style={{marginBottom:28}}>
                   <div style={{padding:"0 20px",marginBottom:14}}>
-                    <SectionLabel>{activeGenre?.id?`${activeGenre.label} movies`:"Popular movies"}</SectionLabel>
+                    <SectionLabel>{activeMood?`${activeMood.label} · films`:activeGenre?.id?`${activeGenre.label} movies`:"Popular movies"}</SectionLabel>
                   </div>
                   <div style={{display:"flex",gap:10,overflowX:"auto",padding:"0 20px"}}>
-                    {movies.slice(0,10).map(item=>(
+                    {movies.slice(0,12).map(item=>(
                       <div key={item.id} style={{flexShrink:0,cursor:"pointer"}} onClick={()=>setPreview({...item,media_type:"movie"})}>
                         <div style={{position:"relative"}}>
                           <Poster path={item.poster_path} title={item.title} w={100} radius={12}/>
@@ -1963,10 +2208,10 @@ function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail,suggested=[]}){
               {series.length>0&&(
                 <div style={{marginBottom:28}}>
                   <div style={{padding:"0 20px",marginBottom:14}}>
-                    <SectionLabel>{activeGenre?.id?`${activeGenre.label} series`:"Popular series"}</SectionLabel>
+                    <SectionLabel>{activeMood?`${activeMood.label} · series`:activeGenre?.id?`${activeGenre.label} series`:"Popular series"}</SectionLabel>
                   </div>
                   <div style={{display:"flex",gap:10,overflowX:"auto",padding:"0 20px"}}>
-                    {series.slice(0,10).map(item=>(
+                    {series.slice(0,12).map(item=>(
                       <div key={item.id} style={{flexShrink:0,cursor:"pointer"}} onClick={()=>setPreview({...item,media_type:"tv"})}>
                         <div style={{position:"relative"}}>
                           <Poster path={item.poster_path} title={item.name} w={100} radius={12}/>
@@ -1981,8 +2226,8 @@ function DiscoverScreen({library,onAdd,focusSearch,onOpenDetail,suggested=[]}){
             </>
           )}
 
-          {/* You might like — only on Popular, only when not searching */}
-          {isPopular&&!isSearching&&suggested.length>0&&(
+          {/* You might like — only on Popular */}
+          {isPopular&&suggested.length>0&&(
             <div style={{marginBottom:28}}>
               <div style={{padding:"0 20px",marginBottom:14}}><SectionLabel>You might like</SectionLabel></div>
               <div style={{display:"flex",gap:10,overflowX:"auto",padding:"0 20px"}}>
