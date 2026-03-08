@@ -796,7 +796,18 @@ function DailyTriviaScreen({onClose,userId,friends=[]}){
         const result={answers:newAnswers,total,correct:correctCount,date:new Date().toISOString()};
         try{ localStorage.setItem(TRIVIA_KEY(),JSON.stringify(result)); }catch{}
         if(userId){
-          try{ await sb.from("trivia_scores").upsert({user_id:userId,score:total,correct:correctCount,date:dateStr,answers:newAnswers},{onConflict:"user_id,date"}); }catch(e){ console.error("Score save error:",e); }
+          try{
+            const saveData={user_id:userId,score:total,correct:correctCount,date:dateStr,answers:newAnswers};
+            // Try upsert first (requires unique constraint on user_id+date in DB)
+            const {error:upsertErr}=await sb.from("trivia_scores").upsert(saveData,{onConflict:"user_id,date"});
+            if(upsertErr){
+              console.error("Upsert failed, trying insert:", upsertErr);
+              // Fallback: delete existing then insert
+              await sb.from("trivia_scores").delete().eq("user_id",userId).eq("date",dateStr);
+              const {error:insertErr}=await sb.from("trivia_scores").insert(saveData);
+              if(insertErr) console.error("Insert also failed:", insertErr);
+            }
+          }catch(e){ console.error("Score save error:",e); }
         }
         setAnswers(newAnswers); setPhase("results");
       } else {
@@ -818,6 +829,10 @@ function DailyTriviaScreen({onClose,userId,friends=[]}){
   const totalScore=(savedResult?.total)||answers.reduce((s,a)=>s+a.points,0);
   const totalCorrect=(savedResult?.correct)||answers.filter(a=>a.correct).length;
   const finalAnswers=savedResult?.answers||answers;
+
+  // ── SUBVIEWS (must be before phase checks so they're reachable) ──
+  if(subView==="history") return <TriviaHistory onBack={()=>setSubView(null)} userId={userId}/>;
+  if(subView==="leaderboard") return <TriviaLeaderboard onBack={()=>setSubView(null)} userId={userId} friends={friends}/>;
 
   // ── LOADING ──
   if(phase==="loading") return(
@@ -875,39 +890,39 @@ function DailyTriviaScreen({onClose,userId,friends=[]}){
         </div>
 
         {/* Scrollable content */}
-        <div style={{flex:1,overflowY:"auto",padding:"0 20px 16px"}}>
+        <div style={{flex:1,display:"flex",flexDirection:"column",padding:"0 20px 12px",minHeight:0,overflow:"hidden"}}>
           {/* Question text */}
           {q.type==="quote"?(
-            <div style={{background:CARD,borderRadius:16,padding:"16px 20px",marginBottom:16,border:`1px solid ${BORDER}`}}>
-              <div style={{fontSize:12,color:TEXT2,marginBottom:8,fontWeight:600}}>{q.question}</div>
-              <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:20,color:TEXT,lineHeight:1.4}}>"{q.blank}"</div>
+            <div style={{background:CARD,borderRadius:16,padding:"12px 16px",marginBottom:10,border:`1px solid ${BORDER}`,flexShrink:0}}>
+              <div style={{fontSize:11,color:TEXT2,marginBottom:6,fontWeight:600}}>{q.question}</div>
+              <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:17,color:TEXT,lineHeight:1.4}}>"{q.blank}"</div>
             </div>
           ):(
-            <div style={{fontSize:15,fontWeight:700,color:TEXT,marginBottom:16,lineHeight:1.4}}>{q.question}</div>
+            <div style={{fontSize:14,fontWeight:700,color:TEXT,marginBottom:10,lineHeight:1.35,flexShrink:0}}>{q.question}</div>
           )}
 
-          {/* Visual — poster or dual poster */}
+          {/* Visual — poster or dual poster (compact, fixed height) */}
           {(q.type==="poster"||q.type==="cast"||q.type==="director"||q.type==="oscar"||q.type==="year")&&q.tmdb_id&&(
-            <div style={{display:"flex",justifyContent:"center",marginBottom:16}}>
-              <TrivPoster tmdbId={q.tmdb_id} blur={q.type==="poster"&&!revealed} timeLeft={timeLeft}/>
+            <div style={{display:"flex",justifyContent:"center",marginBottom:10,flexShrink:0}}>
+              <TrivPoster tmdbId={q.tmdb_id} blur={q.type==="poster"&&!revealed} timeLeft={timeLeft} compact/>
             </div>
           )}
           {(q.type==="higher"||q.type==="came_first"||q.type==="budget")&&(
-            <div style={{display:"flex",gap:10,marginBottom:16,justifyContent:"center",alignItems:"flex-start"}}>
-              <div style={{flex:1,textAlign:"center",maxWidth:150}}>
-                <TrivPoster tmdbId={q.idA} blur={false} small/>
-                <div style={{fontSize:11,color:TEXT2,marginTop:4,fontWeight:600,lineHeight:1.3}}>{q.titleA}</div>
+            <div style={{display:"flex",gap:8,marginBottom:10,justifyContent:"center",alignItems:"flex-start",flexShrink:0}}>
+              <div style={{flex:1,textAlign:"center",maxWidth:120}}>
+                <TrivPoster tmdbId={q.idA} blur={false} small compact/>
+                <div style={{fontSize:10,color:TEXT2,marginTop:3,fontWeight:600,lineHeight:1.3}}>{q.titleA}</div>
               </div>
-              <div style={{display:"flex",alignItems:"center",fontSize:13,fontWeight:800,color:TEXT3,paddingTop:60}}>vs</div>
-              <div style={{flex:1,textAlign:"center",maxWidth:150}}>
-                <TrivPoster tmdbId={q.idB} blur={false} small/>
-                <div style={{fontSize:11,color:TEXT2,marginTop:4,fontWeight:600,lineHeight:1.3}}>{q.titleB}</div>
+              <div style={{display:"flex",alignItems:"center",fontSize:12,fontWeight:800,color:TEXT3,paddingTop:46}}>vs</div>
+              <div style={{flex:1,textAlign:"center",maxWidth:120}}>
+                <TrivPoster tmdbId={q.idB} blur={false} small compact/>
+                <div style={{fontSize:10,color:TEXT2,marginTop:3,fontWeight:600,lineHeight:1.3}}>{q.titleB}</div>
               </div>
             </div>
           )}
 
-          {/* Answer options — always 4, stacked, no scroll needed */}
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {/* Answer options — flex-grow to fill remaining space */}
+          <div style={{display:"flex",flexDirection:"column",gap:7,flex:1,justifyContent:"flex-end"}}>
             {q.options.map(opt=>{
               const isSelected=selected===opt;
               const isCorrect=opt===q.answer;
@@ -916,7 +931,7 @@ function DailyTriviaScreen({onClose,userId,friends=[]}){
               else if(revealed&&isSelected&&!isCorrect){bg="#4d1a1a";border="1.5px solid #7a2d2d";color="#fff";}
               return(
                 <button key={opt} onClick={()=>handleAnswer(opt)} disabled={revealed}
-                  style={{background:bg,border,borderRadius:12,padding:"12px 16px",color,fontFamily:"inherit",fontSize:13,fontWeight:600,cursor:revealed?"default":"pointer",textAlign:"left",transition:"all .2s",display:"flex",alignItems:"center",justifyContent:"space-between",minHeight:48}}>
+                  style={{background:bg,border,borderRadius:12,padding:"11px 14px",color,fontFamily:"inherit",fontSize:13,fontWeight:600,cursor:revealed?"default":"pointer",textAlign:"left",transition:"all .2s",display:"flex",alignItems:"center",justifyContent:"space-between",minHeight:44,flex:1,maxHeight:60}}>
                   <span style={{flex:1,paddingRight:8,lineHeight:1.3}}>{opt}</span>
                   {revealed&&isCorrect&&<span style={{fontSize:16,flexShrink:0}}>✓</span>}
                   {revealed&&isSelected&&!isCorrect&&<span style={{fontSize:16,flexShrink:0}}>✗</span>}
@@ -924,7 +939,7 @@ function DailyTriviaScreen({onClose,userId,friends=[]}){
               );
             })}
           </div>
-          {selected==="__timeout__"&&<div style={{textAlign:"center",marginTop:12,fontSize:13,color:"#E65100",fontWeight:700}}>⏱ Time's up! Answer: {q.answer}</div>}
+          {selected==="__timeout__"&&<div style={{textAlign:"center",marginTop:8,fontSize:13,color:"#E65100",fontWeight:700,flexShrink:0}}>⏱ Time's up! Answer: {q.answer}</div>}
         </div>
 
         {/* Score bar */}
@@ -980,9 +995,6 @@ function DailyTriviaScreen({onClose,userId,friends=[]}){
       </div>
     </div>
   );
-
-  if(subView==="history") return <TriviaHistory onBack={()=>setSubView(null)} userId={userId}/>;
-  if(subView==="leaderboard") return <TriviaLeaderboard onBack={()=>setSubView(null)} userId={userId} friends={friends}/>;
 
   return null;
 }
@@ -1264,7 +1276,7 @@ function CustomWatchlists({userId,library,onItemPress}){
         <div style={{background:CARD,borderRadius:14,padding:"14px",marginBottom:14,display:"flex",gap:8}}>
           <input autoFocus value={newName} onChange={e=>setNewName(e.target.value)}
             onKeyDown={e=>e.key==="Enter"&&createList()}
-            placeholder="List name e.g. Watch with Rents…"
+            placeholder="List name e.g. Watch with Zo…"
             style={{flex:1,background:"transparent",border:"none",fontSize:14,color:TEXT,outline:"none",fontFamily:"inherit"}}/>
           <button onClick={createList} style={{background:TEXT,border:"none",borderRadius:10,padding:"6px 14px",color:BG,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Create</button>
           <button onClick={()=>{setCreating(false);setNewName("");}} style={{background:"none",border:"none",fontSize:18,color:TEXT3,cursor:"pointer"}}>×</button>
@@ -1273,7 +1285,7 @@ function CustomWatchlists({userId,library,onItemPress}){
 
       {lists.length===0&&!creating&&(
         <div style={{textAlign:"center",padding:"24px 0"}}>
-          <div style={{fontSize:13,color:TEXT2,lineHeight:1.6}}>Create lists like "Watch with Rents" or<br/>"Guilty Pleasures" to organise your watchlist.</div>
+          <div style={{fontSize:13,color:TEXT2,lineHeight:1.6}}>Create lists like "Watch with Zo" or<br/>"Guilty Pleasures" to organise your watchlist.</div>
         </div>
       )}
 
@@ -1304,13 +1316,14 @@ function CustomWatchlists({userId,library,onItemPress}){
 }
 
 // Trivia poster helper — fetches poster path live from TMDB
-function TrivPoster({tmdbId,blur,timeLeft,small}){
+function TrivPoster({tmdbId,blur,timeLeft,small,compact}){
   const [path,setPath]=useState(null);
   useEffect(()=>{
     if(!tmdbId) return;
     tmdb(`/movie/${tmdbId}`).then(d=>setPath(d.poster_path)).catch(()=>{});
   },[tmdbId]);
-  const w=small?120:150; const h=small?180:225;
+  const w=small?(compact?90:120):(compact?120:150);
+  const h=small?(compact?135:180):(compact?180:225);
   if(!path) return <div style={{width:w,height:h,borderRadius:12,background:CARD}}/>;
   return(
     <img src={IMG(path,"w342")} style={{width:w,height:h,objectFit:"cover",borderRadius:12,display:"block",boxShadow:"0 6px 24px rgba(0,0,0,0.15)",filter:blur&&timeLeft>8?"blur(12px)":blur&&timeLeft>4?"blur(6px)":blur?"blur(2px)":"none",transition:"filter .5s"}} alt=""/>
