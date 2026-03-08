@@ -1231,7 +1231,7 @@ function CustomWatchlists({userId,library,onItemPress}){
 
       {lists.length===0&&!creating&&(
         <div style={{textAlign:"center",padding:"24px 0"}}>
-          <div style={{fontSize:13,color:TEXT2,lineHeight:1.6}}>Create lists like "Watch with Zo" or<br/>"Guilty Pleasures" to organise your watchlist.</div>
+          <div style={{fontSize:13,color:TEXT2,lineHeight:1.6}}>Create lists like "Watch with Gf" or<br/>"Guilty Pleasures" to organise your watchlist.</div>
         </div>
       )}
 
