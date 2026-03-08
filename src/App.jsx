@@ -1925,6 +1925,38 @@ export default function SeenIt(){
                   })}
                 </div>
               </div>
+)}
+
+            {/* Just finished */}
+            {library.filter(i=>(i.lists||[]).includes("Finished")&&i.watched_at).length>0&&(
+              <div style={{marginBottom:28}}>
+                <div style={{padding:"0 20px",marginBottom:14}}><SectionLabel>Just finished</SectionLabel></div>
+                <div style={{display:"flex",gap:10,overflowX:"auto",padding:"0 20px"}}>
+                  {[...library]
+                    .filter(i=>(i.lists||[]).includes("Finished")&&i.watched_at)
+                    .sort((a,b)=>new Date(b.watched_at)-new Date(a.watched_at))
+                    .slice(0,5)
+                    .map(item=>{
+                      const title=item._meta?.name||item._meta?.title||"—";
+                      const daysAgo=Math.floor((Date.now()-new Date(item.watched_at))/86400000);
+                      const when=daysAgo===0?"Today":daysAgo===1?"Yesterday":`${daysAgo}d ago`;
+                      return(
+                        <div key={item.id} onClick={()=>setDetail(item)} style={{flexShrink:0,cursor:"pointer",width:80}}>
+                          <div style={{position:"relative"}}>
+                            <Poster path={item._meta?.poster_path} title={title} w={80} radius={12}/>
+                            {!item.rating&&(
+                              <div style={{position:"absolute",top:6,right:6,width:18,height:18,borderRadius:"50%",background:SAGE,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                <span style={{fontSize:9,color:"#fff",fontWeight:900}}>★</span>
+                              </div>
+                            )}
+                          </div>
+                          <div style={{fontSize:11,color:TEXT2,marginTop:6,width:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500,textAlign:"center"}}>{title}</div>
+                          <div style={{fontSize:10,color:TEXT3,textAlign:"center",marginTop:2}}>{when}</div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
             )}
 
           </div>
