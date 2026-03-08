@@ -2883,6 +2883,8 @@ export default function SeenIt(){
 
   // Reset scroll on tab change
   useEffect(()=>{ if(contentRef.current) contentRef.current.scrollTop=0; },[tab]);
+
+  const addToLibrary=async(result)=>{
     if(!session||library.some(i=>i.tmdb_id===result.id)) return;
     const lists=result.lists||["Watchlist"];
     const {data,error}=await sb.from("library").insert({user_id:session.user.id,tmdb_id:result.id,media_type:result.media_type,lists}).select().single();
