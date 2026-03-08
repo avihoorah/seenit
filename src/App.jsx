@@ -611,143 +611,149 @@ function DetailSheet({item,onClose,onUpdate,onDelete,onEpisodes,userId,profile})
   );
 }
 
-// ── Daily Trivia ───────────────────────────────────────────────────────────────
-// Deterministic seeded random so everyone gets the same questions each day
-function seededRand(seed){
-  let s=seed;
-  return ()=>{ s=(s*1664525+1013904223)&0xffffffff; return (s>>>0)/0xffffffff; };
-}
-function todaySeed(){
-  const d=new Date();
-  return d.getFullYear()*10000+(d.getMonth()+1)*100+d.getDate();
-}
-function shuffleSeeded(arr,rand){
-  const a=[...arr];
-  for(let i=a.length-1;i>0;i--){ const j=Math.floor(rand()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
-  return a;
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// TRIVIA DATA — loaded from triviaData.json (place in src/ alongside App.jsx)
+// ─────────────────────────────────────────────────────────────────────────────
+import _td from "./triviaData.json";
+const TMOVIES=_td.movies;
+const TQUOTES=_td.quotes;
+const TACTOR_MOVIES=_td.actorMovies;
+const TOSCAR_OTHERS=_td.oscarOthers;
+const TTRIVIA=_td.trivia;
 
-async function buildDailyQuestions(){
-  const rand=seededRand(todaySeed());
-  // Fetch a pool of popular movies from multiple pages
-  const pages=[1,2,3];
-  const pageIdx=Math.floor(rand()*pages.length)+1;
-  const [p1,p2,p3]=await Promise.all([
-    tmdb(`/movie/popular?page=1`),
-    tmdb(`/movie/popular?page=2`),
-    tmdb(`/movie/top_rated?page=1`),
-  ]);
-  const pool=shuffleSeeded([...(p1.results||[]),...(p2.results||[]),...(p3.results||[])].filter(m=>m.poster_path&&m.backdrop_path&&m.release_date&&m.vote_average>5),rand);
+// ─────────────────────────────────────────────────────────────────────────────
+// TRIVIA ENGINE
+// ─────────────────────────────────────────────────────────────────────────────
+function tSeed(seed){ let s=seed; return ()=>{ s=(s*1664525+1013904223)&0xffffffff; return (s>>>0)/0xffffffff; }; }
+function todaySeed(){ const d=new Date(); return d.getFullYear()*10000+(d.getMonth()+1)*100+d.getDate(); }
+function tShuffle(arr,rand){ const a=[...arr]; for(let i=a.length-1;i>0;i--){ const j=Math.floor(rand()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+function tPick(arr,rand,n=1,exclude=[]){ return tShuffle(arr.filter(x=>!exclude.includes(x)),rand).slice(0,n); }
+const TRIVIA_KEY=()=>{ const d=new Date(); return `seenit_trivia_${d.getFullYear()}_${d.getMonth()+1}_${d.getDate()}`; };
+const TIME_PER_Q=15;
 
-  // Fetch extra details for first 15 movies (directors etc)
-  const picked=pool.slice(0,15);
-  const details=await Promise.all(picked.slice(0,10).map(m=>tmdb(`/movie/${m.id}?append_to_response=credits`).catch(()=>null)));
+function buildTriviaQuestions(){
+  const rand=tSeed(todaySeed());
+  const rand2=tSeed(todaySeed()+1337);
+  const movies=tShuffle([...TMOVIES],rand);
+  const quotes=tShuffle([...TQUOTES],rand2);
+  const actors=tShuffle([...TACTOR_MOVIES],rand);
+  const triviaQs=tShuffle([...TTRIVIA],rand2);
 
+  // 10 slots with guaranteed different types
+  const SLOTS=["poster","higher","came_first","cast","quote","oscar","director","trivia","budget","year"];
+  const shuffledSlots=tShuffle([...SLOTS],tSeed(todaySeed()+42));
   const questions=[];
-  const used=new Set();
 
-  const addQ=(q)=>{ if(questions.length<10) questions.push(q); };
+  for(const slot of shuffledSlots){
+    if(questions.length>=10) break;
+    const usedMovieIds=new Set(questions.flatMap(q=>[q.idA,q.idB,q.tmdb_id].filter(Boolean)));
 
-  // Q type 1: Guess movie from blurred poster (4 options)
-  for(let i=0;i<details.length&&questions.length<10;i++){
-    const m=details[i]; if(!m||used.has(m.id)) continue;
-    const wrongs=pool.filter(x=>x.id!==m.id&&x.title!==m.title).slice(i*3,i*3+3);
-    if(wrongs.length<3) continue;
-    const opts=shuffleSeeded([m.title,...wrongs.map(w=>w.title)],seededRand(todaySeed()+i*7));
-    addQ({ type:"poster", question:"Which movie is this?", poster:m.poster_path, answer:m.title, options:opts, movieId:m.id });
-    used.add(m.id);
+    if(slot==="poster"){
+      const m=movies.find(x=>!usedMovieIds.has(x.id));
+      if(!m) continue;
+      const wrongs=movies.filter(x=>x.id!==m.id&&x.title!==m.title).slice(0,3).map(x=>x.title);
+      if(wrongs.length<3) continue;
+      questions.push({type:"poster",question:"Which movie is this?",tmdb_id:m.id,answer:m.title,options:tShuffle([m.title,...wrongs],tSeed(todaySeed()+m.id))});
+    }
+
+    else if(slot==="higher"){
+      const pair=movies.filter(x=>!usedMovieIds.has(x.id));
+      const a=pair[0],b=pair[1];
+      if(!a||!b||a.rating===b.rating) continue;
+      const higher=a.rating>b.rating?a.title:b.title;
+      questions.push({type:"higher",question:"Which has the higher rating?",idA:a.id,idB:b.id,titleA:a.title,titleB:b.title,ratingA:a.rating,ratingB:b.rating,answer:higher,options:[a.title,b.title]});
+    }
+
+    else if(slot==="came_first"){
+      const pair=movies.filter(x=>!usedMovieIds.has(x.id));
+      const a=pair[0],b=pair[2];
+      if(!a||!b||a.year===b.year) continue;
+      const first=a.year<b.year?a.title:b.title;
+      questions.push({type:"came_first",question:"Which came out first?",idA:a.id,idB:b.id,titleA:`${a.title} (${a.year})`,titleB:`${b.title} (${b.year})`,answer:first,options:tShuffle([a.title,b.title],tSeed(todaySeed()+a.id+b.id)),yearA:a.year,yearB:b.year});
+    }
+
+    else if(slot==="cast"){
+      const entry=actors.find(x=>!usedMovieIds.has(x.tmdb_id));
+      if(!entry) continue;
+      const opts=tShuffle([entry.movie,...entry.decoys],tSeed(todaySeed()+entry.tmdb_id));
+      questions.push({type:"cast",question:`Which movie did ${entry.actor} star in?`,tmdb_id:entry.tmdb_id,actor:entry.actor,answer:entry.movie,options:opts});
+    }
+
+    else if(slot==="quote"){
+      const q=quotes.find(x=>!usedMovieIds.has(x.tmdb_id));
+      if(!q) continue;
+      questions.push({type:"quote",question:`Finish the quote from "${q.movie}":`,tmdb_id:q.tmdb_id,blank:q.blank,answer:q.answer,options:tShuffle([...q.opts],tSeed(todaySeed()+q.tmdb_id))});
+    }
+
+    else if(slot==="oscar"){
+      const winners=TMOVIES.filter(x=>x.oscar_bp&&!usedMovieIds.has(x.id));
+      const winner=winners[Math.floor(rand()*winners.length)];
+      if(!winner) continue;
+      const decoys=tShuffle(TOSCAR_OTHERS.filter(t=>t!==winner.title),tSeed(todaySeed()+winner.id)).slice(0,3);
+      if(decoys.length<3) continue;
+      questions.push({type:"oscar",question:"Which film won the Oscar for Best Picture?",tmdb_id:winner.id,answer:winner.title,options:tShuffle([winner.title,...decoys],tSeed(todaySeed()+winner.id+99))});
+    }
+
+    else if(slot==="director"){
+      const m=movies.find(x=>!usedMovieIds.has(x.id)&&x.director);
+      if(!m) continue;
+      const otherDirs=[...new Set(movies.filter(x=>x.director!==m.director).map(x=>x.director))].slice(0,3);
+      if(otherDirs.length<3) continue;
+      questions.push({type:"director",question:`Who directed "${m.title}"?`,tmdb_id:m.id,answer:m.director,options:tShuffle([m.director,...otherDirs],tSeed(todaySeed()+m.id+77))});
+    }
+
+    else if(slot==="trivia"){
+      const tq=triviaQs.find(x=>!questions.some(q=>q.triviaQ===x.q));
+      if(!tq) continue;
+      questions.push({type:"trivia",question:tq.q,answer:tq.a,options:tShuffle([...tq.opts],tSeed(todaySeed()+tq.q.length*17)),triviaQ:tq.q});
+    }
+
+    else if(slot==="budget"){
+      const pair=movies.filter(x=>!usedMovieIds.has(x.id)&&x.revenue>0);
+      const a=pair[0],b=pair[3];
+      if(!a||!b||a.revenue===b.revenue) continue;
+      const bigger=a.revenue>b.revenue?a.title:b.title;
+      questions.push({type:"budget",question:"Which had the bigger box office?",idA:a.id,idB:b.id,titleA:a.title,titleB:b.title,revenueA:a.revenue,revenueB:b.revenue,answer:bigger,options:[a.title,b.title]});
+    }
+
+    else if(slot==="year"){
+      const m=movies.find(x=>!usedMovieIds.has(x.id));
+      if(!m) continue;
+      const yr=m.year;
+      const wrongs=[yr-2,yr-1,yr+1,yr+2].filter(y=>y!==yr&&y>1939&&y<=2024);
+      const opts=tShuffle([String(yr),...wrongs.slice(0,3).map(String)],tSeed(todaySeed()+m.id+55));
+      questions.push({type:"year",question:`What year was "${m.title}" released?`,tmdb_id:m.id,answer:String(yr),options:opts});
+    }
   }
 
-  // Q type 2: Which year was this released?
-  for(let i=0;i<details.length&&questions.length<10;i++){
-    const m=details[i]; if(!m||used.has(m.id)) continue;
-    const year=parseInt((m.release_date||"").slice(0,4));
-    if(!year) continue;
-    const r2=seededRand(todaySeed()+i*13);
-    const wrongs=[year-2,year-1,year+1,year+2].filter(y=>y!==year&&y>1970&&y<=new Date().getFullYear());
-    const opts=shuffleSeeded([String(year),...wrongs.slice(0,3).map(String)],r2);
-    addQ({ type:"year", question:`When was "${m.title}" released?`, poster:m.poster_path, answer:String(year), options:opts, movieId:m.id });
-    used.add(m.id);
-  }
-
-  // Q type 3: Who directed this?
-  for(let i=0;i<details.length&&questions.length<10;i++){
-    const m=details[i]; if(!m||used.has(m.id)) continue;
-    const director=(m.credits?.crew||[]).find(c=>c.job==="Director");
-    if(!director) continue;
-    const otherDirs=details.filter(x=>x&&x.id!==m.id).map(x=>(x.credits?.crew||[]).find(c=>c.job==="Director")).filter(Boolean).map(d=>d.name);
-    const unique=[...new Set(otherDirs)];
-    if(unique.length<3) continue;
-    const r3=seededRand(todaySeed()+i*17);
-    const opts=shuffleSeeded([director.name,...unique.slice(0,3)],r3);
-    addQ({ type:"director", question:`Who directed "${m.title}"?`, poster:m.poster_path, answer:director.name, options:opts, movieId:m.id });
-    used.add(m.id);
-  }
-
-  // Q type 4: Higher rated? (pick one of two)
-  for(let i=0;i<details.length-1&&questions.length<10;i++){
-    const a=details[i],b=details[i+1];
-    if(!a||!b||used.has(a.id+"-"+b.id)) continue;
-    if(a.vote_average===b.vote_average) continue;
-    const higher=a.vote_average>b.vote_average?a.title:b.title;
-    const r4=seededRand(todaySeed()+i*23);
-    const opts=shuffleSeeded([a.title,b.title],r4);
-    addQ({ type:"higher", question:"Which has the higher rating?", posterA:a.poster_path, posterB:b.poster_path, answer:higher, options:opts, ratingA:a.vote_average.toFixed(1), ratingB:b.vote_average.toFixed(1) });
-    used.add(a.id+"-"+b.id);
-  }
-
-  // Q type 5: Which is the odd one out by genre
-  for(let i=0;i<details.length&&questions.length<10;i++){
-    const m=details[i]; if(!m||used.has("tagline-"+m.id)) continue;
-    const genres=(m.genres||[]).map(g=>g.name);
-    if(genres.length<2) continue;
-    const r5=seededRand(todaySeed()+i*31);
-    const fakeGenres=["Animation","Horror","Documentary","Western","Musical"].filter(g=>!genres.includes(g));
-    if(fakeGenres.length<3) continue;
-    const correct=genres[0];
-    const opts=shuffleSeeded([correct,...fakeGenres.slice(0,3)],r5);
-    addQ({ type:"genre", question:`Which genre does "${m.title}" belong to?`, poster:m.poster_path, answer:correct, options:opts, movieId:m.id });
-    used.add("tagline-"+m.id);
-  }
-
-  // Shuffle final questions and return exactly 10
-  return shuffleSeeded(questions,seededRand(todaySeed()+999)).slice(0,10);
+  return questions.slice(0,10);
 }
 
-const TRIVIA_STORAGE_KEY=()=>{
-  const d=new Date();
-  return `seenit_trivia_${d.getFullYear()}_${d.getMonth()+1}_${d.getDate()}`;
-};
-const TIME_PER_Q=15; // seconds
+const QTYPE_ICON={"poster":"🎬","higher":"⭐","came_first":"📅","cast":"🎭","quote":"💬","oscar":"🏆","director":"🎥","trivia":"🎲","budget":"💰","year":"📆"};
+const QTYPE_LABEL={"poster":"Poster ID","higher":"Higher Rated","came_first":"Which Came First","cast":"Match the Actor","quote":"Finish the Quote","oscar":"Oscar Winner","director":"Who Directed","trivia":"Movie Trivia","budget":"Box Office","year":"Release Year"};
 
-function DailyTriviaScreen({onClose,userId,username}){
-  const [phase,setPhase]=useState("loading"); // loading|intro|playing|results
+function DailyTriviaScreen({onClose,userId,friends=[]}){
+  const [phase,setPhase]=useState("loading");
+  const [subView,setSubView]=useState(null);
   const [questions,setQuestions]=useState([]);
   const [qIdx,setQIdx]=useState(0);
   const [selected,setSelected]=useState(null);
-  const [answers,setAnswers]=useState([]); // {correct,timeLeft,points}
+  const [answers,setAnswers]=useState([]);
   const [timeLeft,setTimeLeft]=useState(TIME_PER_Q);
   const [timerOn,setTimerOn]=useState(false);
-  const [alreadyPlayed,setAlreadyPlayed]=useState(null);
+  const [savedResult,setSavedResult]=useState(null);
   const timerRef=useRef(null);
 
   useEffect(()=>{
-    // Check if already played today
-    try{
-      const saved=localStorage.getItem(TRIVIA_STORAGE_KEY());
-      if(saved){ setAlreadyPlayed(JSON.parse(saved)); setPhase("results"); return; }
-    }catch{}
-    buildDailyQuestions().then(qs=>{ setQuestions(qs); setPhase("intro"); }).catch(()=>setPhase("error"));
+    try{ const s=localStorage.getItem(TRIVIA_KEY()); if(s){ setSavedResult(JSON.parse(s)); setPhase("results"); return; } }catch{}
+    const qs=buildTriviaQuestions();
+    setQuestions(qs); setPhase("intro");
   },[]);
 
-  // Timer
   useEffect(()=>{
     if(!timerOn) return;
     timerRef.current=setInterval(()=>{
-      setTimeLeft(t=>{
-        if(t<=1){ clearInterval(timerRef.current); handleAnswer(null); return TIME_PER_Q; }
-        return t-1;
-      });
+      setTimeLeft(t=>{ if(t<=1){ clearInterval(timerRef.current); handleAnswer(null); return TIME_PER_Q; } return t-1; });
     },1000);
     return()=>clearInterval(timerRef.current);
   },[timerOn,qIdx]);
@@ -756,219 +762,517 @@ function DailyTriviaScreen({onClose,userId,username}){
 
   const handleAnswer=(opt)=>{
     if(selected!==null) return;
-    clearInterval(timerRef.current);
-    setTimerOn(false);
+    clearInterval(timerRef.current); setTimerOn(false);
     const q=questions[qIdx];
     const correct=opt===q.answer;
     const pts=correct?Math.max(10,Math.round((timeLeft/TIME_PER_Q)*100)):0;
     setSelected(opt||"__timeout__");
-    const newAnswers=[...answers,{correct,timeLeft:opt?timeLeft:0,points:pts,answer:opt,correctAnswer:q.answer}];
+    const newAnswers=[...answers,{correct,timeLeft:opt?timeLeft:0,points:pts,answer:opt,correctAnswer:q.answer,type:q.type}];
     setTimeout(()=>{
       if(qIdx+1>=questions.length){
-        // Save result
         const result={answers:newAnswers,total:newAnswers.reduce((s,a)=>s+a.points,0),correct:newAnswers.filter(a=>a.correct).length,date:new Date().toISOString()};
-        try{ localStorage.setItem(TRIVIA_STORAGE_KEY(),JSON.stringify(result)); }catch{}
-        setAnswers(newAnswers);
-        setPhase("results");
+        try{ localStorage.setItem(TRIVIA_KEY(),JSON.stringify(result)); }catch{}
+        setAnswers(newAnswers); setPhase("results");
       } else {
-        setAnswers(newAnswers);
-        setQIdx(i=>i+1);
-        startQ();
+        setAnswers(newAnswers); setQIdx(i=>i+1); startQ();
       }
-    },1200);
+    },1400);
   };
 
-  const shareResult=(ans)=>{
-    const correct=(ans||answers).filter(a=>a.correct).length;
-    const total=(ans||answers).reduce((s,a)=>s+a.points,0);
-    const emojis=(ans||answers).map(a=>a.correct?"🎬":"💀").join("");
-    const text=`🎬 SeenitTrivia ${new Date().toLocaleDateString("en-GB")}\n${emojis}\n${correct}/10 correct · ${total} pts\nPlay at seen-it.online`;
-    if(navigator.share){ navigator.share({text}); }
-    else{ navigator.clipboard?.writeText(text); }
+  const doShare=async(ans)=>{
+    const _ans=ans||answers;
+    const correct=_ans.filter(a=>a.correct).length;
+    const total=_ans.reduce((s,a)=>s+a.points,0);
+    const dateStr=new Date().toISOString().slice(0,10);
+    const emojis=_ans.map(a=>a.correct?"🎬":"💀").join("");
+    const text=`🎬 SeenitTrivia ${new Date().toLocaleDateString("en-GB")}\n${emojis}\n${correct}/10 correct · ${total} pts\nseen-it.online`;
+    // Save score to Supabase so friends can see it on leaderboard
+    if(userId){
+      await sb.from("trivia_scores").upsert({user_id:userId,score:total,correct,date:dateStr,answers:_ans},{onConflict:"user_id,date"});
+    }
+    if(navigator.share){ navigator.share({text}); } else { navigator.clipboard?.writeText(text); }
   };
 
   const q=questions[qIdx];
-  const totalScore=(alreadyPlayed?.total)||(answers.reduce((s,a)=>s+a.points,0));
-  const totalCorrect=(alreadyPlayed?.correct)||(answers.filter(a=>a.correct).length);
-  const finalAnswers=alreadyPlayed?.answers||answers;
+  const totalScore=(savedResult?.total)||answers.reduce((s,a)=>s+a.points,0);
+  const totalCorrect=(savedResult?.correct)||answers.filter(a=>a.correct).length;
+  const finalAnswers=savedResult?.answers||answers;
 
+  // ── LOADING ──
   if(phase==="loading") return(
     <div style={{position:"fixed",inset:0,zIndex:400,background:BG,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}>
-      <Spin size={28}/>
-      <div style={{fontSize:13,color:TEXT2}}>Building today's quiz…</div>
+      <Spin size={28}/><div style={{fontSize:13,color:TEXT2}}>Loading today's quiz…</div>
     </div>
   );
 
-  if(phase==="error") return(
-    <div style={{position:"fixed",inset:0,zIndex:400,background:BG,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,padding:32,textAlign:"center"}}>
-      <div style={{fontSize:36}}>😕</div>
-      <div style={{fontSize:16,fontWeight:700,color:TEXT}}>Couldn't load today's quiz</div>
-      <div style={{fontSize:13,color:TEXT2}}>Check your connection and try again.</div>
-      <button onClick={onClose} style={{background:TEXT,border:"none",borderRadius:12,padding:"12px 28px",color:BG,fontWeight:700,fontSize:14,fontFamily:"inherit",cursor:"pointer"}}>Go back</button>
-    </div>
-  );
-
+  // ── INTRO ──
   if(phase==="intro") return(
-    <div style={{position:"fixed",inset:0,zIndex:400,background:TEXT,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,textAlign:"center"}}>
-      <button onClick={onClose} style={{position:"absolute",top:20,left:20,background:"rgba(255,255,255,0.12)",border:"none",width:36,height:36,borderRadius:"50%",color:"#fff",fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
-      <div style={{fontSize:48,marginBottom:16}}>🎬</div>
-      <div style={{fontSize:11,fontWeight:800,letterSpacing:2,color:SAGE,textTransform:"uppercase",marginBottom:8}}>Daily Trivia</div>
-      <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:32,color:"#fff",lineHeight:1.2,marginBottom:12}}>How well do you know movies?</div>
-      <div style={{fontSize:14,color:"rgba(255,255,255,0.55)",lineHeight:1.6,marginBottom:12}}>10 questions · New quiz every day · Answer fast for more points</div>
-      <div style={{display:"flex",gap:12,marginBottom:32,flexWrap:"wrap",justifyContent:"center"}}>
-        {["🎞️ Poster ID","📅 Release year","🎬 Director","⭐ Higher rated","🎭 Genre"].map(t=>(
-          <span key={t} style={{background:"rgba(255,255,255,0.1)",borderRadius:20,padding:"6px 14px",fontSize:12,color:"rgba(255,255,255,0.7)",fontWeight:600}}>{t}</span>
-        ))}
-      </div>
-      <button onClick={()=>{ setPhase("playing"); startQ(); }}
-        style={{background:SAGE,border:"none",borderRadius:16,padding:"16px 48px",color:"#fff",fontWeight:800,fontSize:16,fontFamily:"inherit",cursor:"pointer",boxShadow:"0 4px 20px rgba(122,158,126,0.4)"}}>
-        Start Quiz
-      </button>
-    </div>
-  );
-
-  if(phase==="playing"&&q) return(
-    <div style={{position:"fixed",inset:0,zIndex:400,background:BG,display:"flex",flexDirection:"column"}}>
-      {/* Header */}
-      <div style={{padding:"16px 20px",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
-        <button onClick={onClose} style={{background:CARD,border:"none",width:36,height:36,borderRadius:"50%",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:TEXT}}>×</button>
-        <div style={{flex:1}}>
-          <div style={{display:"flex",gap:4}}>
-            {questions.map((_,i)=>(
-              <div key={i} style={{flex:1,height:3,borderRadius:2,background:i<qIdx?"#1C1C1A":i===qIdx?SAGE:BORDER,transition:"background .3s"}}/>
-            ))}
-          </div>
-          <div style={{fontSize:11,color:TEXT2,marginTop:6,fontWeight:600}}>Question {qIdx+1} of {questions.length}</div>
+    <div style={{position:"fixed",inset:0,zIndex:400,background:TEXT,display:"flex",flexDirection:"column"}}>
+      <button onClick={onClose} style={{position:"absolute",top:20,left:20,background:"rgba(255,255,255,0.12)",border:"none",width:36,height:36,borderRadius:"50%",color:"#fff",fontSize:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
+      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,textAlign:"center"}}>
+        <div style={{fontSize:56,marginBottom:16}}>🎬</div>
+        <div style={{fontSize:11,fontWeight:800,letterSpacing:2,color:SAGE,textTransform:"uppercase",marginBottom:8}}>Daily Trivia</div>
+        <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:30,color:"#fff",lineHeight:1.2,marginBottom:12}}>How well do you know movies?</div>
+        <div style={{fontSize:14,color:"rgba(255,255,255,0.5)",lineHeight:1.6,marginBottom:20}}>10 questions · different type every round · answer fast for bonus points</div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center",marginBottom:36}}>
+          {Object.entries(QTYPE_ICON).map(([k,icon])=>(
+            <span key={k} style={{background:"rgba(255,255,255,0.1)",borderRadius:20,padding:"6px 14px",fontSize:12,color:"rgba(255,255,255,0.7)",fontWeight:600}}>{icon} {QTYPE_LABEL[k]}</span>
+          ))}
         </div>
-        {/* Timer */}
-        <div style={{width:44,height:44,borderRadius:"50%",border:`3px solid ${timeLeft<=5?"#E65100":SAGE}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"border-color .3s"}}>
-          <span style={{fontSize:15,fontWeight:800,color:timeLeft<=5?"#E65100":TEXT}}>{timeLeft}</span>
-        </div>
-      </div>
-
-      {/* Question */}
-      <div style={{flex:1,overflowY:"auto",padding:"8px 20px 24px"}}>
-        <div style={{fontSize:13,fontWeight:700,color:TEXT2,marginBottom:16,textAlign:"center"}}>{q.question}</div>
-
-        {/* Poster / dual poster */}
-        {q.type==="higher"?(
-          <div style={{display:"flex",gap:12,marginBottom:24,justifyContent:"center"}}>
-            <div style={{textAlign:"center"}}>
-              <img src={IMG(q.posterA,"w342")} style={{width:130,height:195,objectFit:"cover",borderRadius:12,display:"block"}} alt="A"/>
-              <div style={{fontSize:11,color:TEXT2,marginTop:6,fontWeight:600}}>{q.options[0]}</div>
-            </div>
-            <div style={{display:"flex",alignItems:"center",fontSize:18,fontWeight:800,color:TEXT3}}>vs</div>
-            <div style={{textAlign:"center"}}>
-              <img src={IMG(q.posterB,"w342")} style={{width:130,height:195,objectFit:"cover",borderRadius:12,display:"block"}} alt="B"/>
-              <div style={{fontSize:11,color:TEXT2,marginTop:6,fontWeight:600}}>{q.options[1]}</div>
-            </div>
-          </div>
-        ):q.poster?(
-          <div style={{display:"flex",justifyContent:"center",marginBottom:24}}>
-            <img src={IMG(q.poster,"w342")} style={{width:160,height:240,objectFit:"cover",borderRadius:14,display:"block",boxShadow:"0 8px 32px rgba(0,0,0,0.15)",filter:q.type==="poster"&&selected===null?"blur(8px)":"none",transition:"filter .4s"}} alt=""/>
-          </div>
-        ):null}
-
-        {/* Options */}
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {q.options.map(opt=>{
-            const isSelected=selected===opt;
-            const isCorrect=opt===q.answer;
-            const revealed=selected!==null;
-            let bg=CARD,border=`1.5px solid ${BORDER}`,color=TEXT;
-            if(revealed&&isCorrect){ bg="#1a4d1e"; border="1.5px solid #2d7a33"; color="#fff"; }
-            else if(revealed&&isSelected&&!isCorrect){ bg="#4d1a1a"; border="1.5px solid #7a2d2d"; color="#fff"; }
-            return(
-              <button key={opt} onClick={()=>handleAnswer(opt)} disabled={revealed}
-                style={{background:bg,border,borderRadius:14,padding:"14px 18px",color,fontFamily:"inherit",fontSize:14,fontWeight:600,cursor:revealed?"default":"pointer",textAlign:"left",transition:"all .2s",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                <span>{opt}</span>
-                {revealed&&isCorrect&&<span style={{fontSize:18}}>✓</span>}
-                {revealed&&isSelected&&!isCorrect&&<span style={{fontSize:18}}>✗</span>}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Timeout message */}
-        {selected==="__timeout__"&&(
-          <div style={{textAlign:"center",marginTop:16,fontSize:13,color:"#E65100",fontWeight:700}}>⏱ Time's up! The answer was {q.answer}</div>
-        )}
-      </div>
-
-      {/* Points indicator */}
-      <div style={{padding:"12px 20px",borderTop:`1px solid ${BORDER}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
-        <div style={{fontSize:12,color:TEXT2}}>Score so far</div>
-        <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:22,fontWeight:700,color:TEXT}}>{answers.reduce((s,a)=>s+a.points,0)} pts</div>
+        <button onClick={()=>{ setPhase("playing"); startQ(); }} style={{background:SAGE,border:"none",borderRadius:16,padding:"16px 56px",color:"#fff",fontWeight:800,fontSize:16,fontFamily:"inherit",cursor:"pointer",boxShadow:"0 4px 24px rgba(122,158,126,0.4)"}}>Let's go</button>
       </div>
     </div>
   );
 
+  // ── PLAYING ──
+  if(phase==="playing"&&q){
+    const icon=QTYPE_ICON[q.type]||"🎬";
+    const label=QTYPE_LABEL[q.type]||"";
+    const revealed=selected!==null;
+    return(
+      <div style={{position:"fixed",inset:0,zIndex:400,background:BG,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        {/* Header */}
+        <div style={{padding:"14px 20px 10px",flexShrink:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+            <button onClick={onClose} style={{background:CARD,border:"none",width:34,height:34,borderRadius:"50%",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:TEXT,flexShrink:0}}>×</button>
+            <div style={{flex:1}}>
+              <div style={{display:"flex",gap:3}}>
+                {questions.map((_,i)=>(
+                  <div key={i} style={{flex:1,height:3,borderRadius:2,background:i<qIdx?TEXT:i===qIdx?SAGE:BORDER,transition:"background .3s"}}/>
+                ))}
+              </div>
+            </div>
+            <div style={{width:40,height:40,borderRadius:"50%",border:`2.5px solid ${timeLeft<=5?"#E65100":SAGE}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"border-color .3s"}}>
+              <span style={{fontSize:13,fontWeight:800,color:timeLeft<=5?"#E65100":TEXT}}>{timeLeft}</span>
+            </div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:18}}>{icon}</span>
+            <span style={{fontSize:11,fontWeight:800,color:SAGE,textTransform:"uppercase",letterSpacing:1}}>{label}</span>
+            <span style={{fontSize:11,color:TEXT3,marginLeft:"auto"}}>Q{qIdx+1}/10</span>
+          </div>
+        </div>
+
+        {/* Scrollable content */}
+        <div style={{flex:1,overflowY:"auto",padding:"0 20px 16px"}}>
+          {/* Question text */}
+          {q.type==="quote"?(
+            <div style={{background:CARD,borderRadius:16,padding:"16px 20px",marginBottom:16,border:`1px solid ${BORDER}`}}>
+              <div style={{fontSize:12,color:TEXT2,marginBottom:8,fontWeight:600}}>{q.question}</div>
+              <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:20,color:TEXT,lineHeight:1.4}}>"{q.blank}"</div>
+            </div>
+          ):(
+            <div style={{fontSize:15,fontWeight:700,color:TEXT,marginBottom:16,lineHeight:1.4}}>{q.question}</div>
+          )}
+
+          {/* Visual — poster or dual poster */}
+          {(q.type==="poster"||q.type==="cast"||q.type==="director"||q.type==="oscar"||q.type==="year")&&q.tmdb_id&&(
+            <div style={{display:"flex",justifyContent:"center",marginBottom:16}}>
+              <TrivPoster tmdbId={q.tmdb_id} blur={q.type==="poster"&&!revealed} timeLeft={timeLeft}/>
+            </div>
+          )}
+          {(q.type==="higher"||q.type==="came_first"||q.type==="budget")&&(
+            <div style={{display:"flex",gap:10,marginBottom:16,justifyContent:"center",alignItems:"flex-start"}}>
+              <div style={{flex:1,textAlign:"center",maxWidth:150}}>
+                <TrivPoster tmdbId={q.idA} blur={false} small/>
+                <div style={{fontSize:11,color:TEXT2,marginTop:4,fontWeight:600,lineHeight:1.3}}>{q.titleA}</div>
+              </div>
+              <div style={{display:"flex",alignItems:"center",fontSize:13,fontWeight:800,color:TEXT3,paddingTop:60}}>vs</div>
+              <div style={{flex:1,textAlign:"center",maxWidth:150}}>
+                <TrivPoster tmdbId={q.idB} blur={false} small/>
+                <div style={{fontSize:11,color:TEXT2,marginTop:4,fontWeight:600,lineHeight:1.3}}>{q.titleB}</div>
+              </div>
+            </div>
+          )}
+
+          {/* Answer options — always 4, stacked, no scroll needed */}
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {q.options.map(opt=>{
+              const isSelected=selected===opt;
+              const isCorrect=opt===q.answer;
+              let bg=CARD,border=`1.5px solid ${BORDER}`,color=TEXT;
+              if(revealed&&isCorrect){bg="#1a4d1e";border="1.5px solid #2d7a33";color="#fff";}
+              else if(revealed&&isSelected&&!isCorrect){bg="#4d1a1a";border="1.5px solid #7a2d2d";color="#fff";}
+              return(
+                <button key={opt} onClick={()=>handleAnswer(opt)} disabled={revealed}
+                  style={{background:bg,border,borderRadius:12,padding:"12px 16px",color,fontFamily:"inherit",fontSize:13,fontWeight:600,cursor:revealed?"default":"pointer",textAlign:"left",transition:"all .2s",display:"flex",alignItems:"center",justifyContent:"space-between",minHeight:48}}>
+                  <span style={{flex:1,paddingRight:8,lineHeight:1.3}}>{opt}</span>
+                  {revealed&&isCorrect&&<span style={{fontSize:16,flexShrink:0}}>✓</span>}
+                  {revealed&&isSelected&&!isCorrect&&<span style={{fontSize:16,flexShrink:0}}>✗</span>}
+                </button>
+              );
+            })}
+          </div>
+          {selected==="__timeout__"&&<div style={{textAlign:"center",marginTop:12,fontSize:13,color:"#E65100",fontWeight:700}}>⏱ Time's up! Answer: {q.answer}</div>}
+        </div>
+
+        {/* Score bar */}
+        <div style={{padding:"10px 20px",borderTop:`1px solid ${BORDER}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0,background:BG}}>
+          <div style={{fontSize:12,color:TEXT2}}>Score</div>
+          <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:20,fontWeight:700,color:TEXT}}>{answers.reduce((s,a)=>s+a.points,0)} pts</div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── RESULTS ──
   if(phase==="results") return(
     <div style={{position:"fixed",inset:0,zIndex:400,background:BG,display:"flex",flexDirection:"column"}}>
       <div style={{padding:"16px 20px",display:"flex",alignItems:"center",gap:12,flexShrink:0,borderBottom:`1px solid ${BORDER}`}}>
         <button onClick={onClose} style={{background:CARD,border:"none",width:36,height:36,borderRadius:"50%",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:TEXT}}>‹</button>
         <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:18,fontWeight:700,color:TEXT}}>Today's results</div>
       </div>
-      <div style={{flex:1,overflowY:"auto",padding:"24px 20px 40px"}}>
-        {/* Score card */}
-        <div style={{background:TEXT,borderRadius:20,padding:"28px 24px",marginBottom:20,textAlign:"center"}}>
-          <div style={{fontSize:11,fontWeight:800,letterSpacing:2,color:SAGE,textTransform:"uppercase",marginBottom:8}}>Your score</div>
-          <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:64,color:"#fff",fontWeight:700,lineHeight:1}}>{totalScore}</div>
-          <div style={{fontSize:14,color:"rgba(255,255,255,0.5)",marginTop:4}}>points · {totalCorrect}/10 correct</div>
-          {/* Emoji grid */}
-          <div style={{fontSize:22,letterSpacing:4,marginTop:16}}>
-            {finalAnswers.map((a,i)=><span key={i}>{a.correct?"🎬":"💀"}</span>)}
-          </div>
+      <div style={{flex:1,overflowY:"auto",padding:"20px 20px 40px"}}>
+        <div style={{background:TEXT,borderRadius:20,padding:"24px",marginBottom:16,textAlign:"center"}}>
+          <div style={{fontSize:11,fontWeight:800,letterSpacing:2,color:SAGE,textTransform:"uppercase",marginBottom:6}}>Your score</div>
+          <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:60,color:"#fff",fontWeight:700,lineHeight:1}}>{totalScore}</div>
+          <div style={{fontSize:13,color:"rgba(255,255,255,0.5)",marginTop:4}}>{totalCorrect}/10 correct</div>
+          <div style={{fontSize:22,letterSpacing:3,marginTop:14}}>{finalAnswers.map((a,i)=><span key={i}>{a.correct?"🎬":"💀"}</span>)}</div>
         </div>
-
-        {/* Performance bar */}
-        <div style={{background:CARD,borderRadius:16,padding:"16px 20px",marginBottom:20}}>
+        <div style={{background:CARD,borderRadius:16,padding:"16px",marginBottom:16}}>
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
             <span style={{fontSize:12,fontWeight:700,color:TEXT2}}>Accuracy</span>
             <span style={{fontSize:12,fontWeight:700,color:TEXT}}>{Math.round((totalCorrect/10)*100)}%</span>
           </div>
           <div style={{height:8,background:BORDER,borderRadius:4}}>
-            <div style={{height:"100%",background:SAGE,borderRadius:4,width:`${(totalCorrect/10)*100}%`,transition:"width 1s ease"}}/>
+            <div style={{height:"100%",background:SAGE,borderRadius:4,width:`${(totalCorrect/10)*100}%`}}/>
           </div>
         </div>
-
-        {/* Q breakdown */}
-        <div style={{marginBottom:20}}>
-          <SectionLabel>Question breakdown</SectionLabel>
+        <div style={{marginBottom:16}}>
+          <SectionLabel>Breakdown</SectionLabel>
           {finalAnswers.map((a,i)=>(
             <div key={i} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:`1px solid ${BORDER}`}}>
-              <div style={{width:28,height:28,borderRadius:"50%",background:a.correct?SAGE_LIGHT:"#fdf0ee",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                <span style={{fontSize:13}}>{a.correct?"✓":"✗"}</span>
-              </div>
+              <div style={{width:28,height:28,borderRadius:"50%",background:a.correct?SAGE_LIGHT:"#fdf0ee",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:13}}>{a.correct?"✓":"✗"}</div>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:12,color:TEXT,fontWeight:600}}>Q{i+1} · {a.correct?"Correct":"Wrong"}</div>
-                {!a.correct&&<div style={{fontSize:11,color:TEXT3,marginTop:1}}>Answer: {a.correctAnswer}</div>}
+                <div style={{fontSize:12,color:TEXT,fontWeight:600}}>{QTYPE_ICON[a.type]} {QTYPE_LABEL[a.type]||"Q"}{i+1} · {a.correct?"Correct":"Wrong"}</div>
+                {!a.correct&&<div style={{fontSize:11,color:TEXT3,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Answer: {a.correctAnswer}</div>}
               </div>
-              <div style={{fontSize:13,fontWeight:700,color:a.correct?SAGE:TEXT3}}>+{a.points}</div>
+              <div style={{fontSize:13,fontWeight:700,color:a.correct?SAGE:TEXT3,flexShrink:0}}>+{a.points}</div>
             </div>
           ))}
         </div>
-
-        {alreadyPlayed&&(
-          <div style={{background:SAGE_LIGHT,borderRadius:12,padding:"12px 16px",marginBottom:20,textAlign:"center"}}>
-            <div style={{fontSize:13,color:SAGE,fontWeight:700}}>You already played today! Come back tomorrow 🎬</div>
-          </div>
-        )}
-
-        {/* Share + close */}
-        <button onClick={()=>shareResult(finalAnswers)}
-          style={{width:"100%",background:TEXT,border:"none",borderRadius:14,padding:"15px",color:BG,fontWeight:800,fontSize:15,fontFamily:"inherit",cursor:"pointer",marginBottom:12}}>
-          Share my score 🎬
-        </button>
-        <button onClick={onClose}
-          style={{width:"100%",background:"none",border:`1.5px solid ${BORDER}`,borderRadius:14,padding:"14px",color:TEXT2,fontWeight:700,fontSize:14,fontFamily:"inherit",cursor:"pointer"}}>
-          Back to app
-        </button>
+        {savedResult&&<div style={{background:SAGE_LIGHT,borderRadius:12,padding:"12px 16px",marginBottom:16,textAlign:"center"}}><div style={{fontSize:13,color:SAGE,fontWeight:700}}>Come back tomorrow for a new quiz! 🎬</div></div>}
+        <button onClick={()=>doShare(finalAnswers)} style={{width:"100%",background:TEXT,border:"none",borderRadius:14,padding:"15px",color:BG,fontWeight:800,fontSize:15,fontFamily:"inherit",cursor:"pointer",marginBottom:10}}>Share my score 🎬</button>
+        <button onClick={()=>setSubView("history")} style={{width:"100%",background:CARD,border:`1.5px solid ${BORDER}`,borderRadius:14,padding:"14px",color:TEXT,fontWeight:700,fontSize:14,fontFamily:"inherit",cursor:"pointer",marginBottom:10}}>📅 My history</button>
+        <button onClick={()=>setSubView("leaderboard")} style={{width:"100%",background:CARD,border:`1.5px solid ${BORDER}`,borderRadius:14,padding:"14px",color:TEXT,fontWeight:700,fontSize:14,fontFamily:"inherit",cursor:"pointer",marginBottom:10}}>🏆 Friend leaderboard</button>
+        <button onClick={onClose} style={{width:"100%",background:"none",border:`1.5px solid ${BORDER}`,borderRadius:14,padding:"14px",color:TEXT2,fontWeight:700,fontSize:14,fontFamily:"inherit",cursor:"pointer"}}>Back to app</button>
       </div>
     </div>
   );
 
+  if(subView==="history") return <TriviaHistory onBack={()=>setSubView(null)} userId={userId}/>;
+  if(subView==="leaderboard") return <TriviaLeaderboard onBack={()=>setSubView(null)} userId={userId} friends={friends}/>;
+
   return null;
+}
+
+
+// ── Trivia History ─────────────────────────────────────────────────────────────
+function TriviaHistory({onBack,userId}){
+  const [history,setHistory]=useState([]);
+  useEffect(()=>{
+    // Collect all localStorage trivia entries
+    const entries=[];
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i);
+      if(key&&key.startsWith("seenit_trivia_")){
+        try{ const val=JSON.parse(localStorage.getItem(key)); if(val) entries.push({...val,key}); }catch{}
+      }
+    }
+    entries.sort((a,b)=>new Date(b.date)-new Date(a.date));
+    setHistory(entries);
+  },[]);
+
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:500,background:BG,display:"flex",flexDirection:"column"}}>
+      <div style={{padding:"16px 20px",display:"flex",alignItems:"center",gap:12,flexShrink:0,borderBottom:`1px solid ${BORDER}`}}>
+        <button onClick={onBack} style={{background:CARD,border:"none",width:36,height:36,borderRadius:"50%",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:TEXT}}>‹</button>
+        <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:18,fontWeight:700,color:TEXT}}>My trivia history</div>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"16px 20px 40px"}}>
+        {history.length===0&&(
+          <div style={{textAlign:"center",padding:"40px 0"}}>
+            <div style={{fontSize:40,marginBottom:12}}>🎬</div>
+            <div style={{fontSize:14,color:TEXT2}}>No results yet — play today's quiz!</div>
+          </div>
+        )}
+        {history.map((entry,i)=>{
+          const dateStr=new Date(entry.date).toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"});
+          const emojis=(entry.answers||[]).map(a=>a.correct?"🎬":"💀").join("");
+          return(
+            <div key={i} style={{background:CARD,borderRadius:16,padding:"16px",marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                <div style={{fontSize:12,fontWeight:700,color:TEXT2}}>{dateStr}</div>
+                <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:22,fontWeight:700,color:TEXT}}>{entry.total} pts</div>
+              </div>
+              <div style={{fontSize:18,letterSpacing:3,marginBottom:6}}>{emojis}</div>
+              <div style={{fontSize:12,color:TEXT2}}>{entry.correct}/10 correct</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Trivia Leaderboard ─────────────────────────────────────────────────────────
+function TriviaLeaderboard({onBack,userId,friends}){
+  const [scores,setScores]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const todayStr=new Date().toISOString().slice(0,10);
+
+  useEffect(()=>{
+    loadScores();
+  },[]);
+
+  const loadScores=async()=>{
+    setLoading(true);
+    const friendIds=friends.map(f=>f.id);
+    const allIds=[userId,...friendIds];
+    // Load today's scores + all-time totals
+    const {data:todayData}=await sb.from("trivia_scores").select("*, profiles:user_id(username,display_name)").in("user_id",allIds).eq("date",todayStr);
+    const {data:allData}=await sb.from("trivia_scores").select("user_id, score, profiles:user_id(username,display_name)").in("user_id",allIds);
+    // Aggregate all-time
+    const totals={};
+    (allData||[]).forEach(r=>{ totals[r.user_id]=(totals[r.user_id]||{name:r.profiles?.display_name||r.profiles?.username||"?",total:0}); totals[r.user_id].total+=r.score; });
+    setScores({today:(todayData||[]).sort((a,b)=>b.score-a.score), allTime:Object.entries(totals).sort((a,b)=>b[1].total-a[1].total).map(([id,v])=>({user_id:id,...v}))});
+    setLoading(false);
+  };
+
+  const medals=["🥇","🥈","🥉"];
+
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:500,background:BG,display:"flex",flexDirection:"column"}}>
+      <div style={{padding:"16px 20px",display:"flex",alignItems:"center",gap:12,flexShrink:0,borderBottom:`1px solid ${BORDER}`}}>
+        <button onClick={onBack} style={{background:CARD,border:"none",width:36,height:36,borderRadius:"50%",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:TEXT}}>‹</button>
+        <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:18,fontWeight:700,color:TEXT}}>Leaderboard</div>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"16px 20px 40px"}}>
+        {loading?<div style={{display:"flex",justifyContent:"center",padding:"40px 0"}}><Spin/></div>:(
+          <>
+            {/* Today */}
+            <div style={{marginBottom:24}}>
+              <SectionLabel>Today</SectionLabel>
+              {(!scores.today||scores.today.length===0)&&<div style={{fontSize:13,color:TEXT2,padding:"12px 0"}}>No shared scores yet today. Be the first!</div>}
+              {(scores.today||[]).map((s,i)=>{
+                const name=s.profiles?.display_name||s.profiles?.username||"?";
+                const isMe=s.user_id===userId;
+                return(
+                  <div key={s.user_id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:`1px solid ${BORDER}`}}>
+                    <div style={{fontSize:20,width:28,textAlign:"center"}}>{medals[i]||`${i+1}`}</div>
+                    <Av name={name} size={36}/>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:14,fontWeight:700,color:TEXT}}>{name}{isMe?" (you)":""}</div>
+                      <div style={{fontSize:11,color:TEXT2}}>{s.correct}/10 correct</div>
+                    </div>
+                    <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:20,fontWeight:700,color:isMe?SAGE:TEXT}}>{s.score}</div>
+                  </div>
+                );
+              })}
+            </div>
+            {/* All time */}
+            <div>
+              <SectionLabel>All time</SectionLabel>
+              {(scores.allTime||[]).map((s,i)=>{
+                const isMe=s.user_id===userId;
+                return(
+                  <div key={s.user_id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:`1px solid ${BORDER}`}}>
+                    <div style={{fontSize:20,width:28,textAlign:"center"}}>{medals[i]||`${i+1}`}</div>
+                    <Av name={s.name} size={36}/>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:14,fontWeight:700,color:TEXT}}>{s.name}{isMe?" (you)":""}</div>
+                    </div>
+                    <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:20,fontWeight:700,color:isMe?SAGE:TEXT}}>{s.total} pts</div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Custom Watchlists ──────────────────────────────────────────────────────────
+function CustomWatchlists({userId,library,onItemPress}){
+  const [lists,setLists]=useState([]);
+  const [items,setItems]=useState({}); // {listId: [watchlist_items]}
+  const [activeList,setActiveList]=useState(null);
+  const [creating,setCreating]=useState(false);
+  const [newName,setNewName]=useState("");
+  const [addingTo,setAddingTo]=useState(null); // listId to add movie to
+  const [search,setSearch]=useState("");
+  const [searchRes,setSearchRes]=useState([]);
+
+  useEffect(()=>{ loadLists(); },[userId]);
+
+  const loadLists=async()=>{
+    const {data}=await sb.from("watchlists").select("*").eq("user_id",userId).order("created_at");
+    setLists(data||[]);
+    if(data&&data.length>0){
+      const {data:itemData}=await sb.from("watchlist_items").select("*").in("watchlist_id",data.map(l=>l.id));
+      const grouped={};
+      (itemData||[]).forEach(item=>{ if(!grouped[item.watchlist_id]) grouped[item.watchlist_id]=[]; grouped[item.watchlist_id].push(item); });
+      setItems(grouped);
+    }
+  };
+
+  const createList=async()=>{
+    if(!newName.trim()) return;
+    const {data}=await sb.from("watchlists").insert({user_id:userId,name:newName.trim()}).select().single();
+    if(data){ setLists(p=>[...p,data]); setNewName(""); setCreating(false); }
+  };
+
+  const deleteList=async(id)=>{
+    await sb.from("watchlists").delete().eq("id",id);
+    setLists(p=>p.filter(l=>l.id!==id));
+    setItems(p=>{ const n={...p}; delete n[id]; return n; });
+    if(activeList===id) setActiveList(null);
+  };
+
+  const removeItem=async(listId,itemId)=>{
+    await sb.from("watchlist_items").delete().eq("id",itemId);
+    setItems(p=>({...p,[listId]:(p[listId]||[]).filter(x=>x.id!==itemId)}));
+  };
+
+  const addItem=async(listId,tmdbId,mediaType)=>{
+    const exists=(items[listId]||[]).some(x=>x.tmdb_id===tmdbId);
+    if(exists) return;
+    const {data}=await sb.from("watchlist_items").insert({watchlist_id:listId,tmdb_id:tmdbId,media_type:mediaType}).select().single();
+    if(data) setItems(p=>({...p,[listId]:[...(p[listId]||[]),data]}));
+    setAddingTo(null); setSearch(""); setSearchRes([]);
+  };
+
+  // Search library for adding
+  useEffect(()=>{
+    if(!search.trim()){ setSearchRes([]); return; }
+    const q=search.toLowerCase();
+    setSearchRes(library.filter(i=>(i._meta?.name||i._meta?.title||"").toLowerCase().includes(q)).slice(0,8));
+  },[search,library]);
+
+  // Get meta for a watchlist item from library
+  const getMeta=(tmdbId)=>library.find(i=>i.tmdb_id===tmdbId)?._meta;
+
+  const activeListData=lists.find(l=>l.id===activeList);
+  const activeItems=activeList?(items[activeList]||[]):[];
+
+  // ── List detail view ──
+  if(activeList) return(
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+        <button onClick={()=>setActiveList(null)} style={{background:CARD,border:"none",width:32,height:32,borderRadius:"50%",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,color:TEXT}}>‹</button>
+        <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:18,color:TEXT,fontWeight:700,flex:1}}>{activeListData?.name}</div>
+        <button onClick={()=>setAddingTo(activeList)} style={{background:TEXT,border:"none",borderRadius:20,padding:"6px 14px",color:BG,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>+ Add</button>
+        <button onClick={()=>deleteList(activeList)} style={{background:"none",border:"none",fontSize:18,color:TEXT3,cursor:"pointer",padding:"0 4px"}}>🗑</button>
+      </div>
+
+      {addingTo&&(
+        <div style={{marginBottom:16}}>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search your library…"
+            style={{width:"100%",background:CARD,border:`1.5px solid ${BORDER}`,borderRadius:12,padding:"10px 14px",fontSize:14,color:TEXT,outline:"none",fontFamily:"inherit"}}/>
+          {searchRes.map(item=>{
+            const title=item._meta?.name||item._meta?.title||"—";
+            return(
+              <div key={item.id} onClick={()=>addItem(activeList,item.tmdb_id,item.media_type)}
+                style={{display:"flex",gap:10,alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${BORDER}`,cursor:"pointer"}}>
+                <Poster path={item._meta?.poster_path} title={title} w={36} radius={6}/>
+                <div style={{fontSize:13,fontWeight:600,color:TEXT}}>{title}</div>
+              </div>
+            );
+          })}
+          <button onClick={()=>{setAddingTo(null);setSearch("");}} style={{marginTop:8,background:"none",border:"none",fontSize:12,color:TEXT2,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+        </div>
+      )}
+
+      {activeItems.length===0&&!addingTo&&(
+        <div style={{textAlign:"center",padding:"28px 0"}}>
+          <div style={{fontSize:13,color:TEXT2}}>No movies in this list yet.</div>
+          <button onClick={()=>setAddingTo(activeList)} style={{marginTop:12,background:TEXT,border:"none",borderRadius:12,padding:"10px 20px",color:BG,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>+ Add something</button>
+        </div>
+      )}
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+        {activeItems.map(item=>{
+          const meta=getMeta(item.tmdb_id);
+          const title=meta?.name||meta?.title||"—";
+          return(
+            <div key={item.id} style={{position:"relative"}}>
+              <div onClick={()=>{ const libItem=library.find(i=>i.tmdb_id===item.tmdb_id); if(libItem) onItemPress(libItem); }} style={{cursor:"pointer"}}>
+                <Poster path={meta?.poster_path} title={title} w={"100%"} radius={10}/>
+                <div style={{fontSize:10,color:TEXT2,marginTop:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500}}>{title}</div>
+              </div>
+              <button onClick={()=>removeItem(activeList,item.id)} style={{position:"absolute",top:4,right:4,width:20,height:20,borderRadius:"50%",background:"rgba(28,28,26,0.7)",border:"none",color:"#fff",fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>✕</button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // ── Lists overview ──
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <SectionLabel>My lists</SectionLabel>
+        <button onClick={()=>setCreating(true)} style={{background:TEXT,border:"none",borderRadius:20,padding:"6px 14px",color:BG,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>+ New list</button>
+      </div>
+
+      {creating&&(
+        <div style={{background:CARD,borderRadius:14,padding:"14px",marginBottom:14,display:"flex",gap:8}}>
+          <input autoFocus value={newName} onChange={e=>setNewName(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&createList()}
+            placeholder="List name e.g. Watch with Zo…"
+            style={{flex:1,background:"transparent",border:"none",fontSize:14,color:TEXT,outline:"none",fontFamily:"inherit"}}/>
+          <button onClick={createList} style={{background:TEXT,border:"none",borderRadius:10,padding:"6px 14px",color:BG,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Create</button>
+          <button onClick={()=>{setCreating(false);setNewName("");}} style={{background:"none",border:"none",fontSize:18,color:TEXT3,cursor:"pointer"}}>×</button>
+        </div>
+      )}
+
+      {lists.length===0&&!creating&&(
+        <div style={{textAlign:"center",padding:"24px 0"}}>
+          <div style={{fontSize:13,color:TEXT2,lineHeight:1.6}}>Create lists like "Watch with Zo" or<br/>"Guilty Pleasures" to organise your watchlist.</div>
+        </div>
+      )}
+
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {lists.map(list=>{
+          const listItems=items[list.id]||[];
+          const previews=listItems.slice(0,4);
+          return(
+            <div key={list.id} onClick={()=>setActiveList(list.id)}
+              style={{background:CARD,borderRadius:16,padding:"14px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+              <div style={{display:"flex",gap:3,flexShrink:0}}>
+                {previews.length>0?previews.map(item=>{
+                  const meta=getMeta(item.tmdb_id);
+                  return <Poster key={item.id} path={meta?.poster_path} title="" w={32} radius={6}/>;
+                }):<div style={{width:32,height:48,borderRadius:6,background:BORDER,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🎬</div>}
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:14,fontWeight:700,color:TEXT,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{list.name}</div>
+                <div style={{fontSize:11,color:TEXT2,marginTop:2}}>{listItems.length} {listItems.length===1?"title":"titles"}</div>
+              </div>
+              <div style={{color:TEXT3,fontSize:16}}>›</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Trivia poster helper — fetches poster path live from TMDB
+function TrivPoster({tmdbId,blur,timeLeft,small}){
+  const [path,setPath]=useState(null);
+  useEffect(()=>{
+    if(!tmdbId) return;
+    tmdb(`/movie/${tmdbId}`).then(d=>setPath(d.poster_path)).catch(()=>{});
+  },[tmdbId]);
+  const w=small?120:150; const h=small?180:225;
+  if(!path) return <div style={{width:w,height:h,borderRadius:12,background:CARD}}/>;
+  return(
+    <img src={IMG(path,"w342")} style={{width:w,height:h,objectFit:"cover",borderRadius:12,display:"block",boxShadow:"0 6px 24px rgba(0,0,0,0.15)",filter:blur&&timeLeft>8?"blur(12px)":blur&&timeLeft>4?"blur(6px)":blur?"blur(2px)":"none",transition:"filter .5s"}} alt=""/>
+  );
 }
 
 // ── Friends Screen ─────────────────────────────────────────────────────────────
@@ -986,9 +1290,7 @@ function FriendsScreen({userId}){
   const [selectedFriend,setSelectedFriend]=useState(null);
   const [sent,setSent]=useState(false);
   const [showTrivia,setShowTrivia]=useState(false);
-
-  // Check if already played today
-  const todayResult=(()=>{ try{ const s=localStorage.getItem(TRIVIA_STORAGE_KEY()); return s?JSON.parse(s):null; }catch{ return null; } })();
+  const todayResult=(()=>{ try{ const s=localStorage.getItem(TRIVIA_KEY()); return s?JSON.parse(s):null; }catch{ return null; } })();
 
   useEffect(()=>{ loadFriends(); loadRecs(); },[]);
 
@@ -1039,24 +1341,24 @@ function FriendsScreen({userId}){
 
   return(
     <div style={{padding:"0 20px 100px"}}>
-      {showTrivia&&<DailyTriviaScreen onClose={()=>setShowTrivia(false)} userId={userId}/>}
+      {showTrivia&&<DailyTriviaScreen onClose={()=>setShowTrivia(false)}/>}
 
       {/* Daily Trivia Card */}
       <div onClick={()=>setShowTrivia(true)} style={{background:TEXT,borderRadius:20,padding:"20px",marginBottom:24,cursor:"pointer",position:"relative",overflow:"hidden"}}>
-        <div style={{position:"absolute",right:-10,top:-10,fontSize:80,opacity:0.08,lineHeight:1}}>🎬</div>
-        <div style={{fontSize:10,fontWeight:800,letterSpacing:2,color:SAGE,textTransform:"uppercase",marginBottom:6}}>Daily Trivia</div>
-        <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:22,color:"#fff",marginBottom:6,lineHeight:1.2}}>
-          {todayResult?"See today's results":"Today's quiz is ready"}
+        <div style={{position:"absolute",right:-8,top:-8,fontSize:72,opacity:0.07,lineHeight:1,pointerEvents:"none"}}>🎬</div>
+        <div style={{fontSize:10,fontWeight:800,letterSpacing:2,color:SAGE,textTransform:"uppercase",marginBottom:5}}>Daily Trivia</div>
+        <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:22,color:"#fff",marginBottom:8,lineHeight:1.2}}>
+          {todayResult?"See today's results":"Today's quiz is live"}
         </div>
         {todayResult?(
           <div>
-            <div style={{fontSize:22,letterSpacing:3,marginBottom:8}}>{(todayResult.answers||[]).map((a,i)=><span key={i}>{a.correct?"🎬":"💀"}</span>)}</div>
-            <div style={{fontSize:13,color:"rgba(255,255,255,0.55)"}}>{todayResult.correct}/10 correct · {todayResult.total} pts</div>
+            <div style={{fontSize:20,letterSpacing:3,marginBottom:6}}>{(todayResult.answers||[]).map((a,i)=><span key={i}>{a.correct?"🎬":"💀"}</span>)}</div>
+            <div style={{fontSize:13,color:"rgba(255,255,255,0.5)"}}>{todayResult.correct}/10 correct · {todayResult.total} pts</div>
           </div>
         ):(
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <div style={{fontSize:13,color:"rgba(255,255,255,0.55)"}}>10 questions · answer fast for bonus pts</div>
-            <div style={{background:SAGE,borderRadius:20,padding:"8px 18px",fontSize:13,fontWeight:800,color:"#fff",flexShrink:0}}>Play →</div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+            <div style={{fontSize:13,color:"rgba(255,255,255,0.5)"}}>10 questions · all different types · resets daily</div>
+            <div style={{background:SAGE,borderRadius:20,padding:"7px 16px",fontSize:12,fontWeight:800,color:"#fff",flexShrink:0,whiteSpace:"nowrap"}}>Play →</div>
           </div>
         )}
       </div>
@@ -1899,6 +2201,7 @@ export default function SeenIt(){
   const [libTab,setLibTab]=useState("all");
   const [statusTab,setStatusTab]=useState("all");
   const [libSearch,setLibSearch]=useState("");
+  const [libView,setLibView]=useState("grid"); // "grid" | "lists"
   const [showProfile,setShowProfile]=useState(false);
   const [showWrapped,setShowWrapped]=useState(false);
   const [focusSearch,setFocusSearch]=useState(false);
@@ -2141,12 +2444,19 @@ export default function SeenIt(){
         {/* LIBRARY */}
         {tab==="library"&&(
           <div className="up">
-            {/* Series / Movies / All tabs */}
+            {/* Series / Movies / All tabs + My Lists */}
             <div style={{display:"flex",gap:0,padding:"0 20px",marginBottom:12,borderBottom:`1px solid ${BORDER}`}}>
               {[{id:"all",label:"All"},{id:"series",label:"Series"},{id:"movies",label:"Movies"}].map(t=>(
-                <button key={t.id} onClick={()=>setLibTab(t.id)} style={{padding:"10px 16px",background:"none",border:"none",borderBottom:`2px solid ${libTab===t.id?SAGE:"transparent"}`,color:libTab===t.id?SAGE:TEXT3,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>{t.label}</button>
+                <button key={t.id} onClick={()=>{setLibTab(t.id);setLibView("grid");}} style={{padding:"10px 16px",background:"none",border:"none",borderBottom:`2px solid ${libTab===t.id&&libView==="grid"?SAGE:"transparent"}`,color:libTab===t.id&&libView==="grid"?SAGE:TEXT3,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>{t.label}</button>
               ))}
+              <button onClick={()=>setLibView(v=>v==="lists"?"grid":"lists")} style={{padding:"10px 16px",background:"none",border:"none",borderBottom:`2px solid ${libView==="lists"?SAGE:"transparent"}`,color:libView==="lists"?SAGE:TEXT3,fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer",marginLeft:"auto"}}>My Lists</button>
             </div>
+            {libView==="lists"&&session&&(
+              <div style={{padding:"0 20px 100px"}}>
+                <CustomWatchlists userId={session.user.id} library={library} onItemPress={setDetail}/>
+              </div>
+            )}
+            {libView==="grid"&&<>
             {/* Library search */}
             <div style={{padding:"0 20px",marginBottom:12}}>
               <input value={libSearch} onChange={e=>setLibSearch(e.target.value)} placeholder="Search your library…"
@@ -2198,6 +2508,7 @@ export default function SeenIt(){
                 </div>
               )}
             </div>
+            </>}
           </div>
         )}
 
