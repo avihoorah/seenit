@@ -150,71 +150,19 @@ function StatusBadge({lists=[]}){
 }
 
 // ── Auth ───────────────────────────────────────────────────────────────────────
-function AuthScreen(){
-  const [mode,setMode]=useState("login");
-  const [email,setEmail]=useState("");
-  const [password,setPassword]=useState("");
-  const [username,setUsername]=useState("");
-  const [displayName,setDisplayName]=useState("");
-  const [loading,setLoading]=useState(false);
-  const [error,setError]=useState("");
-  const [success,setSuccess]=useState("");
+function AuthGradientBg({children}){
+  const containerRef=useRef(null);
+  const interactiveRef=useRef(null);
+  const [tgX,setTgX]=useState(0);
+  const [tgY,setTgY]=useState(0);
+  const curRef=useRef({x:0,y:0});
+  const rafRef=useRef(null);
 
-  const submit=async()=>{
-    setError(""); setSuccess(""); setLoading(true);
-    try{
-      if(mode==="login"){
-        const {error:e}=await sb.auth.signInWithPassword({email,password});
-        if(e) throw e;
-      } else {
-        if(!username.trim()) throw new Error("Username is required");
-        if(username.includes(" ")) throw new Error("Username cannot contain spaces");
-        const {error:e}=await sb.auth.signUp({email,password,options:{data:{username:username.toLowerCase(),display_name:displayName||username}}});
-        if(e) throw e;
-        setSuccess("Account created! You can now sign in.");
-        setMode("login");
-      }
-    }catch(e){ setError(e.message); }
-    setLoading(false);
-  };
-
-  return(
-    <div style={{background:BG,minHeight:"100dvh",maxWidth:430,margin:"0 auto",display:"flex",flexDirection:"column",justifyContent:"center",padding:"0 28px",fontFamily:"'DM Sans',system-ui,sans-serif"}}>
-      <div style={{marginBottom:48}}>
-        <div style={{fontSize:13,fontWeight:800,letterSpacing:2,textTransform:"uppercase",marginBottom:10}}><span style={{color:TEXT}}>SEEN</span><span style={{color:SAGE}}>IT</span></div>
-        <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:38,color:TEXT,lineHeight:1.15,whiteSpace:"pre-line"}}>
-          {mode==="login"?"Welcome\nback.":"Create your\naccount."}
-        </div>
-        <div style={{fontSize:14,color:TEXT2,marginTop:10,lineHeight:1.6}}>
-          {mode==="login"?"Your personal TV & movie memory.":"Track everything. Remember everything."}
-        </div>
-      </div>
-      <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {mode==="signup"&&<>
-          <input value={username} onChange={e=>setUsername(e.target.value.toLowerCase())} placeholder="Username (e.g. aviwatches)"
-            style={{background:CARD,border:"none",borderRadius:12,padding:"14px 16px",fontSize:15,fontFamily:"inherit",color:TEXT,outline:"none"}}/>
-          <input value={displayName} onChange={e=>setDisplayName(e.target.value)} placeholder="Display name (e.g. Avi)"
-            style={{background:CARD,border:"none",borderRadius:12,padding:"14px 16px",fontSize:15,fontFamily:"inherit",color:TEXT,outline:"none"}}/>
-        </>}
-        <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email address" type="email"
-          style={{background:CARD,border:"none",borderRadius:12,padding:"14px 16px",fontSize:15,fontFamily:"inherit",color:TEXT,outline:"none"}}/>
-        <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password" type="password"
-          onKeyDown={e=>e.key==="Enter"&&submit()}
-          style={{background:CARD,border:"none",borderRadius:12,padding:"14px 16px",fontSize:15,fontFamily:"inherit",color:TEXT,outline:"none"}}/>
-        {error&&<div style={{fontSize:13,color:"#c0392b",background:"#fdf0ee",padding:"10px 14px",borderRadius:8}}>{error}</div>}
-        {success&&<div style={{fontSize:13,color:"#1e5c2a",background:"#eef8f0",padding:"10px 14px",borderRadius:8}}>{success}</div>}
-        <button onClick={submit} disabled={loading}
-          style={{background:TEXT,border:"none",borderRadius:12,padding:"15px",color:BG,fontWeight:800,fontSize:15,fontFamily:"inherit",cursor:loading?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10,opacity:loading?0.7:1,marginTop:4}}>
-          {loading?<Spin size={18}/>:(mode==="login"?"Sign in":"Create account")}
-        </button>
-        <button onClick={()=>{setMode(mode==="login"?"signup":"login");setError("");setSuccess("");}}
-          style={{background:"none",border:"none",color:TEXT2,fontSize:13,cursor:"pointer",fontFamily:"inherit",padding:"8px 0"}}>
-          {mode==="login"?"Don't have an account? Sign up":"Already have an account? Sign in"}
-        </button>
-      </div>
-    </div>
-  );
-}
+  useEffect(()=>{
+    const el=containerRef.current;
+    if(!el) return;
+    // Set CSS vars for the gradient colours — sage greens + warm creams + dark
+    el.style.setProperty("--ag-start","rgb(28,28,26)");       // TEXT
 
 // ── Rating Modal ───────────────────────────────────────────────────────────────
 function RatingModal({title,onRate,onSkip}){
@@ -2944,7 +2892,7 @@ export default function SeenIt(){
   if(!session) return <AuthScreen/>;
 
   return(
-    <div style={{background:BG,height:"100dvh",maxWidth:430,margin:"0 auto",fontFamily:"'DM Sans',system-ui,sans-serif",color:TEXT,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+    <div style={{background:BG,height:"100dvh",maxWidth:430,margin:"0 auto",fontFamily:"'DM Sans',system-ui,sans-serif",color:TEXT,display:"flex",flexDirection:"column",overflow:"hidden",position:"relative"}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@400;500;600;700;800&display=swap');
         *{box-sizing:border-box;margin:0;padding:0;}
@@ -2955,7 +2903,21 @@ export default function SeenIt(){
         @keyframes spin{to{transform:rotate(360deg);}}
         @keyframes up{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:none;}}
         .up{animation:up .25s ease forwards;}
+        @keyframes blobA{0%,100%{transform:translate(0%,0%) scale(1);}33%{transform:translate(8%,-12%) scale(1.08);}66%{transform:translate(-6%,8%) scale(0.95);}}
+        @keyframes blobB{0%,100%{transform:translate(0%,0%) scale(1);}33%{transform:translate(-10%,10%) scale(1.05);}66%{transform:translate(12%,-6%) scale(0.97);}}
+        @keyframes blobC{0%,100%{transform:translate(0%,0%) scale(1);}50%{transform:translate(6%,14%) scale(1.1);}}
+        .blob-a{animation:blobA 18s ease-in-out infinite;}
+        .blob-b{animation:blobB 24s ease-in-out infinite;}
+        .blob-c{animation:blobC 30s ease-in-out infinite;}
       `}</style>
+
+      {/* ── ANIMATED GRADIENT BLOBS ── */}
+      <div style={{position:"absolute",inset:0,overflow:"hidden",pointerEvents:"none",zIndex:0}}>
+        <div className="blob-a" style={{position:"absolute",top:"-20%",left:"-15%",width:"65%",height:"65%",borderRadius:"50%",background:"radial-gradient(circle at center,rgba(122,158,126,0.25) 0%,rgba(122,158,126,0) 70%)",filter:"blur(36px)"}}/>
+        <div className="blob-b" style={{position:"absolute",top:"35%",right:"-20%",width:"70%",height:"70%",borderRadius:"50%",background:"radial-gradient(circle at center,rgba(122,158,126,0.18) 0%,rgba(122,158,126,0) 70%)",filter:"blur(44px)"}}/>
+        <div className="blob-c" style={{position:"absolute",bottom:"-15%",left:"5%",width:"60%",height:"60%",borderRadius:"50%",background:"radial-gradient(circle at center,rgba(195,182,162,0.22) 0%,rgba(195,182,162,0) 70%)",filter:"blur(40px)"}}/>
+      </div>
+      <div style={{position:"relative",zIndex:1,display:"flex",flexDirection:"column",height:"100%",overflow:"hidden"}}>
 
       {/* ── HEADER ── */}
       <div style={{padding:"20px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexShrink:0}}>
@@ -3186,6 +3148,7 @@ export default function SeenIt(){
       {episodes&&<EpisodeSheet item={episodes} userId={session?.user?.id} onClose={()=>setEpisodes(null)} onProgressSaved={updated=>{ updateItem(updated); setEpisodes(null); }}/>}
       {showProfile&&<ProfileScreen profile={profile} library={library} onClose={()=>setShowProfile(false)} onSignOut={()=>{ setShowProfile(false); signOut(); }} onProfileUpdate={setProfile}/>}
       {showWrapped&&<MonthlyWrapped library={library} profile={profile} onClose={()=>setShowWrapped(false)}/>}
+      </div>
     </div>
   );
 }
