@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import ReactDOM from "react-dom";
 import { createClient } from "@supabase/supabase-js";
+import _td from "./triviaData.json";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
@@ -560,9 +561,8 @@ function DetailSheet({item,onClose,onUpdate,onDelete,onEpisodes,userId,profile})
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TRIVIA DATA — loaded from triviaData.json (place in src/ alongside App.jsx)
+// TRIVIA DATA
 // ─────────────────────────────────────────────────────────────────────────────
-import _td from "./triviaData.json";
 const TMOVIES=_td.movies;
 const TQUOTES=_td.quotes;
 const TACTOR_MOVIES=_td.actorMovies;
