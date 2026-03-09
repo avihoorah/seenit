@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import ReactDOM from "react-dom";
 import { createClient } from "@supabase/supabase-js";
-import _td from "./triviaData.json";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY;
@@ -151,19 +150,71 @@ function StatusBadge({lists=[]}){
 }
 
 // ── Auth ───────────────────────────────────────────────────────────────────────
-function AuthGradientBg({children}){
-  const containerRef=useRef(null);
-  const interactiveRef=useRef(null);
-  const [tgX,setTgX]=useState(0);
-  const [tgY,setTgY]=useState(0);
-  const curRef=useRef({x:0,y:0});
-  const rafRef=useRef(null);
+function AuthScreen(){
+  const [mode,setMode]=useState("login");
+  const [email,setEmail]=useState("");
+  const [password,setPassword]=useState("");
+  const [username,setUsername]=useState("");
+  const [displayName,setDisplayName]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState("");
+  const [success,setSuccess]=useState("");
 
-  useEffect(()=>{
-    const el=containerRef.current;
-    if(!el) return;
-    // Set CSS vars for the gradient colours — sage greens + warm creams + dark
-    el.style.setProperty("--ag-start","rgb(28,28,26)");       // TEXT
+  const submit=async()=>{
+    setError(""); setSuccess(""); setLoading(true);
+    try{
+      if(mode==="login"){
+        const {error:e}=await sb.auth.signInWithPassword({email,password});
+        if(e) throw e;
+      } else {
+        if(!username.trim()) throw new Error("Username is required");
+        if(username.includes(" ")) throw new Error("Username cannot contain spaces");
+        const {error:e}=await sb.auth.signUp({email,password,options:{data:{username:username.toLowerCase(),display_name:displayName||username}}});
+        if(e) throw e;
+        setSuccess("Account created! You can now sign in.");
+        setMode("login");
+      }
+    }catch(e){ setError(e.message); }
+    setLoading(false);
+  };
+
+  return(
+    <div style={{background:BG,minHeight:"100dvh",maxWidth:430,margin:"0 auto",display:"flex",flexDirection:"column",justifyContent:"center",padding:"0 28px",fontFamily:"'DM Sans',system-ui,sans-serif"}}>
+      <div style={{marginBottom:48}}>
+        <div style={{fontSize:13,fontWeight:800,letterSpacing:2,textTransform:"uppercase",marginBottom:10}}><span style={{color:TEXT}}>SEEN</span><span style={{color:SAGE}}>IT</span></div>
+        <div style={{fontFamily:"'Instrument Serif',Georgia,serif",fontSize:38,color:TEXT,lineHeight:1.15,whiteSpace:"pre-line"}}>
+          {mode==="login"?"Welcome\nback.":"Create your\naccount."}
+        </div>
+        <div style={{fontSize:14,color:TEXT2,marginTop:10,lineHeight:1.6}}>
+          {mode==="login"?"Your personal TV & movie memory.":"Track everything. Remember everything."}
+        </div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {mode==="signup"&&<>
+          <input value={username} onChange={e=>setUsername(e.target.value.toLowerCase())} placeholder="Username (e.g. aviwatches)"
+            style={{background:CARD,border:"none",borderRadius:12,padding:"14px 16px",fontSize:15,fontFamily:"inherit",color:TEXT,outline:"none"}}/>
+          <input value={displayName} onChange={e=>setDisplayName(e.target.value)} placeholder="Display name (e.g. Avi)"
+            style={{background:CARD,border:"none",borderRadius:12,padding:"14px 16px",fontSize:15,fontFamily:"inherit",color:TEXT,outline:"none"}}/>
+        </>}
+        <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email address" type="email"
+          style={{background:CARD,border:"none",borderRadius:12,padding:"14px 16px",fontSize:15,fontFamily:"inherit",color:TEXT,outline:"none"}}/>
+        <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password" type="password"
+          onKeyDown={e=>e.key==="Enter"&&submit()}
+          style={{background:CARD,border:"none",borderRadius:12,padding:"14px 16px",fontSize:15,fontFamily:"inherit",color:TEXT,outline:"none"}}/>
+        {error&&<div style={{fontSize:13,color:"#c0392b",background:"#fdf0ee",padding:"10px 14px",borderRadius:8}}>{error}</div>}
+        {success&&<div style={{fontSize:13,color:"#1e5c2a",background:"#eef8f0",padding:"10px 14px",borderRadius:8}}>{success}</div>}
+        <button onClick={submit} disabled={loading}
+          style={{background:TEXT,border:"none",borderRadius:12,padding:"15px",color:BG,fontWeight:800,fontSize:15,fontFamily:"inherit",cursor:loading?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10,opacity:loading?0.7:1,marginTop:4}}>
+          {loading?<Spin size={18}/>:(mode==="login"?"Sign in":"Create account")}
+        </button>
+        <button onClick={()=>{setMode(mode==="login"?"signup":"login");setError("");setSuccess("");}}
+          style={{background:"none",border:"none",color:TEXT2,fontSize:13,cursor:"pointer",fontFamily:"inherit",padding:"8px 0"}}>
+          {mode==="login"?"Don't have an account? Sign up":"Already have an account? Sign in"}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // ── Rating Modal ───────────────────────────────────────────────────────────────
 function RatingModal({title,onRate,onSkip}){
@@ -561,8 +612,9 @@ function DetailSheet({item,onClose,onUpdate,onDelete,onEpisodes,userId,profile})
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TRIVIA DATA
+// TRIVIA DATA — loaded from triviaData.json (place in src/ alongside App.jsx)
 // ─────────────────────────────────────────────────────────────────────────────
+import _td from "./triviaData.json";
 const TMOVIES=_td.movies;
 const TQUOTES=_td.quotes;
 const TACTOR_MOVIES=_td.actorMovies;
