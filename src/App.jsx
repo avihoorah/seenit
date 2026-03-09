@@ -2944,7 +2944,7 @@ export default function SeenIt(){
   if(!session) return <AuthScreen/>;
 
   return(
-    <div style={{background:BG,height:"100dvh",maxWidth:430,margin:"0 auto",fontFamily:"'DM Sans',system-ui,sans-serif",color:TEXT,display:"flex",flexDirection:"column",overflow:"hidden",position:"relative"}}>
+    <div style={{background:BG,height:"100dvh",maxWidth:430,margin:"0 auto",fontFamily:"'DM Sans',system-ui,sans-serif",color:TEXT,display:"flex",flexDirection:"column",overflow:"hidden"}}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@400;500;600;700;800&display=swap');
         *{box-sizing:border-box;margin:0;padding:0;}
@@ -2955,21 +2955,7 @@ export default function SeenIt(){
         @keyframes spin{to{transform:rotate(360deg);}}
         @keyframes up{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:none;}}
         .up{animation:up .25s ease forwards;}
-        @keyframes blobA{0%,100%{transform:translate(0%,0%) scale(1);}33%{transform:translate(8%,-12%) scale(1.08);}66%{transform:translate(-6%,8%) scale(0.95);}}
-        @keyframes blobB{0%,100%{transform:translate(0%,0%) scale(1);}33%{transform:translate(-10%,10%) scale(1.05);}66%{transform:translate(12%,-6%) scale(0.97);}}
-        @keyframes blobC{0%,100%{transform:translate(0%,0%) scale(1);}50%{transform:translate(6%,14%) scale(1.1);}}
-        .blob-a{animation:blobA 18s ease-in-out infinite;}
-        .blob-b{animation:blobB 24s ease-in-out infinite;}
-        .blob-c{animation:blobC 30s ease-in-out infinite;}
       `}</style>
-
-      {/* ── ANIMATED GRADIENT BLOBS ── */}
-      <div style={{position:"absolute",inset:0,overflow:"hidden",pointerEvents:"none",zIndex:0}}>
-        <div className="blob-a" style={{position:"absolute",top:"-20%",left:"-15%",width:"65%",height:"65%",borderRadius:"50%",background:"radial-gradient(circle at center,rgba(122,158,126,0.25) 0%,rgba(122,158,126,0) 70%)",filter:"blur(36px)"}}/>
-        <div className="blob-b" style={{position:"absolute",top:"35%",right:"-20%",width:"70%",height:"70%",borderRadius:"50%",background:"radial-gradient(circle at center,rgba(122,158,126,0.18) 0%,rgba(122,158,126,0) 70%)",filter:"blur(44px)"}}/>
-        <div className="blob-c" style={{position:"absolute",bottom:"-15%",left:"5%",width:"60%",height:"60%",borderRadius:"50%",background:"radial-gradient(circle at center,rgba(195,182,162,0.22) 0%,rgba(195,182,162,0) 70%)",filter:"blur(40px)"}}/>
-      </div>
-      <div style={{position:"relative",zIndex:1,display:"flex",flexDirection:"column",height:"100%",overflow:"hidden"}}>
 
       {/* ── HEADER ── */}
       <div style={{padding:"20px 20px 0",display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexShrink:0}}>
@@ -3200,7 +3186,6 @@ export default function SeenIt(){
       {episodes&&<EpisodeSheet item={episodes} userId={session?.user?.id} onClose={()=>setEpisodes(null)} onProgressSaved={updated=>{ updateItem(updated); setEpisodes(null); }}/>}
       {showProfile&&<ProfileScreen profile={profile} library={library} onClose={()=>setShowProfile(false)} onSignOut={()=>{ setShowProfile(false); signOut(); }} onProfileUpdate={setProfile}/>}
       {showWrapped&&<MonthlyWrapped library={library} profile={profile} onClose={()=>setShowWrapped(false)}/>}
-      </div>
     </div>
   );
 }
